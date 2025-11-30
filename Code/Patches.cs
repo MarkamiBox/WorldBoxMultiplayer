@@ -14,23 +14,37 @@ namespace WorldBoxMultiplayer
             
             if (NetworkManager.Instance != null && NetworkManager.Instance.IsMultiplayerReady)
             {
-                // Gestiamo l'input continuo (DRAG) qui
                 InputHandler.CheckInput();
-                return false; 
+                return false; // Blocca Unity
             }
             return true;
         }
     }
 
-    // Questa classe gestisce l'input del mouse col "rate limiting"
+    [HarmonyPatch(typeof(PowerLibrary), "checkPower")]
+    class PowerLibrary_CheckPower_Patch
+    {
+        static bool Prefix()
+        {
+            // Blocca l'uso locale dei poteri se siamo in multiplayer e non è un turno lockstep
+            if (NetworkManager.Instance != null && NetworkManager.Instance.IsMultiplayerReady)
+            {
+                if (LockstepController.Instance != null && LockstepController.Instance.IsRunningManualStep)
+                    return true; // Lascia passare
+                return false; // Blocca
+            }
+            return true;
+        }
+    }
+
     public static class InputHandler
     {
         private static float _nextActionTime = 0f;
-        private const float ACTION_INTERVAL = 0.05f; // 20 volte al secondo (buono per disegnare/spawnare)
+        // 0.05s = 20 click al secondo (perfetto per trascinare)
+        private const float ACTION_INTERVAL = 0.05f; 
 
         public static void CheckInput()
         {
-            // Se teniamo premuto il mouse E è passato abbastanza tempo
             if (Input.GetMouseButton(0) && Time.time >= _nextActionTime)
             {
                 HandleClick();
@@ -56,7 +70,4 @@ namespace WorldBoxMultiplayer
             }
         }
     }
-
-    // Rimuoviamo le patch sui singoli bottoni/poteri perché ora gestiamo tutto dall'Update centrale
-    // Questo evita errori "Method not found" e conflitti
 }

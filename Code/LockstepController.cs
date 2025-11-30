@@ -10,17 +10,34 @@ namespace WorldBoxMultiplayer
         public static LockstepController Instance;
         public bool IsRunningManualStep = false; 
         public int CurrentTick = 0;
+        
         private float _accumulatedTime = 0f;
-        private const float MsPerTick = 0.05f; 
+        private const float MsPerTick = 0.1f; // 10 TPS (Più lento ma stabile per internet)
 
         private MethodInfo _mapBoxUpdateMethod;
         private bool _initFailed = false;
+        
+        // Lockstep Sync Variables
+        private int _serverTickLimit = 0; // Fino a dove possiamo andare?
 
         public Dictionary<int, List<string>> PendingActions = new Dictionary<int, List<string>>();
 
         void Awake()
         {
             Instance = this;
+        }
+
+        public void AddPendingAction(int tick, string action)
+        {
+            if (!PendingActions.ContainsKey(tick))
+                PendingActions[tick] = new List<string>();
+            PendingActions[tick].Add(action);
+        }
+
+        public void SetServerTick(int tick)
+        {
+            // Il server ci dice che è arrivato al tick X. Noi possiamo andare fino a X.
+            _serverTickLimit = tick;
         }
 
         public void NetworkUpdate()
@@ -41,15 +58,37 @@ namespace WorldBoxMultiplayer
             }
 
             _accumulatedTime += Time.deltaTime;
+
+            // Loop: Eseguiamo i tick solo se abbiamo il permesso dal server (o se siamo l'host)
             while (_accumulatedTime >= MsPerTick)
             {
-                RunGameTick();
-                _accumulatedTime -= MsPerTick;
+                // Se sono HOST: Comando io. Vado avanti sempre.
+                // Se sono CLIENT: Posso andare avanti solo se CurrentTick < _serverTickLimit
+                bool canAdvance = NetworkManager.Instance.IsHost() || CurrentTick < _serverTickLimit;
+
+                if (canAdvance)
+                {
+                    RunGameTick();
+                    _accumulatedTime -= MsPerTick;
+                    
+                    // Se sono HOST, dico al client che ho finito questo tick
+                    if (NetworkManager.Instance.IsHost())
+                    {
+                        NetworkManager.Instance.SendTickSync(CurrentTick);
+                    }
+                }
+                else
+                {
+                    // Sto aspettando il server... (Lag o desync)
+                    // Non sottraggo il tempo, aspetto il prossimo frame
+                    break; 
+                }
             }
         }
 
         private void RunGameTick()
         {
+            // 1. Esegui Azioni Remote per QUESTO tick
             if (PendingActions.ContainsKey(CurrentTick))
             {
                 foreach (var actionJson in PendingActions[CurrentTick])
@@ -59,6 +98,7 @@ namespace WorldBoxMultiplayer
                 PendingActions.Remove(CurrentTick);
             }
 
+            // 2. Fai avanzare il mondo
             if (MapBox.instance != null && !MapBox.instance.isPaused())
             {
                 try 
@@ -69,6 +109,7 @@ namespace WorldBoxMultiplayer
                 }
                 catch { IsRunningManualStep = false; }
             }
+
             CurrentTick++;
         }
 
@@ -91,31 +132,19 @@ namespace WorldBoxMultiplayer
                     {
                         IsRunningManualStep = true;
 
-                        // Logica intelligente per eseguire il potere
                         if (power.click_action != null)
                         {
-                            // Poteri standard (Fulmine, Spawn Unit)
                             power.click_action(tile, powerID);
                         }
-                        else if (!string.IsNullOrEmpty(power.drop_id))
+                        else
                         {
-                            // Drop (Pioggia, Semi) - Usiamo Reflection per trovare il drop_manager
-                            // così evitiamo l'errore CS1061 "Definition not found"
-                            object dropManager = Traverse.Create(MapBox.instance).Field("drop_manager").GetValue();
-                            if (dropManager != null)
-                            {
-                                Traverse.Create(dropManager).Method("spawn", new object[] { tile, power.drop_id, -1f, -1f, -1L }).GetValue();
-                            }
+                            World.world.powers.callAction(power, tile);
                         }
-
                         IsRunningManualStep = false; 
                     }
                 }
             }
-            catch (System.Exception e) { 
-                IsRunningManualStep = false; 
-                Debug.LogWarning("Err Exec: " + e.Message); 
-            }
+            catch {}
         }
     }
 }
