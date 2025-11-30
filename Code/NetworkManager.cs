@@ -11,7 +11,6 @@ namespace WorldBoxMultiplayer
         public static NetworkManager Instance;
         public bool IsConnected = false;
         
-        // Nuova variabile: true solo se siamo connessi E lo scambio dati è attivo
         public bool IsMultiplayerReady 
         {
             get { return IsConnected && _stream != null; }
@@ -34,8 +33,8 @@ namespace WorldBoxMultiplayer
                 _server.Start();
                 _server.BeginAcceptTcpClient(OnClientConnected, null);
                 _isHost = true;
-                IsConnected = true; // Siamo connessi come logica, ma non ancora "Ready" per giocare
-                Debug.Log("[Multiplayer] Server Avviato. In attesa di giocatori...");
+                IsConnected = true; 
+                Debug.Log("[Multiplayer] Server Avviato. In attesa...");
             } catch (Exception e) { Debug.LogError("Errore Host: " + e.Message); }
         }
 
@@ -43,6 +42,8 @@ namespace WorldBoxMultiplayer
         {
             try {
                 _client = new TcpClient();
+                // OTTIMIZZAZIONE LAG: Disabilita il buffering di Nagle per inviare pacchetti piccoli istantaneamente
+                _client.NoDelay = true; 
                 _client.Connect(ip, port);
                 _stream = _client.GetStream();
                 IsConnected = true;
@@ -54,34 +55,50 @@ namespace WorldBoxMultiplayer
         {
             try {
                 _client = _server.EndAcceptTcpClient(ar);
+                _client.NoDelay = true; // OTTIMIZZAZIONE LAG ANCHE PER HOST
                 _stream = _client.GetStream();
-                Debug.Log("[Multiplayer] Un client si è unito! Iniziamo la simulazione.");
-            } catch (Exception e) { Debug.LogError("Errore connessione in entrata: " + e.Message); }
+                Debug.Log("[Multiplayer] Client entrato! Sincronizzazione avviata.");
+            } catch (Exception e) { Debug.LogError("Errore connessione: " + e.Message); }
         }
 
+        // Invia un'azione di gioco (Spawn, Potere)
         public void SendAction(string actionData)
         {
             if (!IsMultiplayerReady) return;
-            
             try {
-                int targetTick = LockstepController.Instance.CurrentTick + 5;
-                string packet = $"{targetTick}|{actionData}\n";
-                byte[] msg = Encoding.ASCII.GetBytes(packet);
-                _stream.Write(msg, 0, msg.Length);
-            } catch (Exception e) { Debug.LogWarning("Errore invio: " + e.Message); }
+                // Formato: "G|TICK|DATI" (G = Game Action)
+                int targetTick = LockstepController.Instance.CurrentTick + 5; // Buffer di 5 tick
+                string packet = $"G|{targetTick}|{actionData}\n";
+                SendRaw(packet);
+            } catch (Exception e) { Debug.LogWarning("Errore invio azione: " + e.Message); }
+        }
+
+        // Invia la posizione del cursore (Priorità bassa, non sincronizzata col Tick)
+        public void SendCursorPos(float x, float y)
+        {
+            if (!IsMultiplayerReady) return;
+            try {
+                // Formato: "C|X|Y" (C = Cursor)
+                // Usiamo numeri interi o float con pochi decimali per risparmiare banda
+                string packet = $"C|{x:F1}|{y:F1}\n"; 
+                SendRaw(packet);
+            } catch {}
+        }
+
+        private void SendRaw(string message)
+        {
+            byte[] msg = Encoding.ASCII.GetBytes(message);
+            _stream.Write(msg, 0, msg.Length);
         }
 
         void Update()
         {
-            // Se non siamo "Pronti" (es. Host che aspetta), non facciamo nulla.
-            // Questo impedisce al gioco di bloccarsi mentre aspetti l'amico.
             if (!IsMultiplayerReady) return;
 
-            // Lettura dati
             if (_stream.DataAvailable)
             {
                 try {
-                    byte[] data = new byte[4096]; // Buffer più grande
+                    byte[] data = new byte[4096];
                     int bytes = _stream.Read(data, 0, data.Length);
                     string responseData = Encoding.ASCII.GetString(data, 0, bytes);
                     
@@ -89,22 +106,37 @@ namespace WorldBoxMultiplayer
                     foreach(var line in lines)
                     {
                         if (string.IsNullOrEmpty(line)) continue;
+                        
+                        // Analizziamo il tipo di pacchetto
                         string[] parts = line.Split('|');
-                        if (parts.Length >= 2)
+                        if (parts.Length < 2) continue;
+
+                        string type = parts[0];
+
+                        if (type == "G") // Game Action (Lockstep)
                         {
-                            int tick = int.Parse(parts[0]);
-                            string content = parts[1];
+                            int tick = int.Parse(parts[1]);
+                            string content = parts[2];
                             
                             if (!LockstepController.Instance.PendingActions.ContainsKey(tick))
                                 LockstepController.Instance.PendingActions[tick] = new System.Collections.Generic.List<string>();
                             
                             LockstepController.Instance.PendingActions[tick].Add(content);
                         }
+                        else if (type == "C") // Cursor Update (Immediato)
+                        {
+                            if (parts.Length >= 3)
+                            {
+                                float x = float.Parse(parts[1]);
+                                float y = float.Parse(parts[2]);
+                                // Aggiorna visivamente il cursore dell'amico
+                                CursorHandler.Instance.UpdateRemoteCursor(x, y);
+                            }
+                        }
                     }
-                } catch (Exception e) { Debug.LogError("Errore lettura rete: " + e.Message); }
+                } catch (Exception e) { Debug.LogError("Errore lettura: " + e.Message); }
             }
             
-            // FONDAMENTALE: Facciamo avanzare il gioco
             LockstepController.Instance.NetworkUpdate();
         }
 

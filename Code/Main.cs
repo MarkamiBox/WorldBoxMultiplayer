@@ -30,25 +30,25 @@ namespace WorldBoxMultiplayer
                 Debug.Log(">>> WORLD BOX MULTIPLAYER: AVVIO IN CORSO <<<");
                 _myLocalIP = GetLocalIPAddress();
 
-                // Usa un ID Harmony molto specifico
                 Harmony harmony = new Harmony("com.markami.worldbox.multiplayer.unique");
                 try {
                     harmony.PatchAll();
-                    Debug.Log(">>> HARMONY PATCH: COMPLETATO <<<");
                 } catch (System.Exception ex) {
                     Debug.LogError("Harmony Errore: " + ex.Message);
-                    _lastError = "Err Harmony: " + ex.Message;
                 }
                 
                 if (GetComponent<NetworkManager>() == null) gameObject.AddComponent<NetworkManager>();
                 if (GetComponent<LockstepController>() == null) gameObject.AddComponent<LockstepController>();
                 
-                Debug.Log(">>> WORLD BOX MULTIPLAYER: CARICATO! IP: " + _myLocalIP + " <<<");
+                // --- AGGIUNTA: Componente Cursore ---
+                if (GetComponent<CursorHandler>() == null) gameObject.AddComponent<CursorHandler>();
+                // ------------------------------------
+                
+                Debug.Log(">>> MOD CARICATA <<<");
             }
             catch (System.Exception e)
             {
                 Debug.LogError("ERRORE AWAKE MOD: " + e.ToString());
-                _lastError = e.Message;
             }
         }
 
