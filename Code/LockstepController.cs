@@ -9,9 +9,8 @@ namespace WorldBoxMultiplayer
     {
         public static LockstepController Instance;
         
-        // COSTANTE TEMPO FISSO: Tutti i PC simuleranno 0.05 secondi per ogni Tick.
-        // Questo elimina il problema della velocità diversa tra PC potenti e lenti.
-        public const float FixedDeltaTime = 0.05f; 
+        // Tempo tra i turni: 0.1s = 10 azioni al secondo (molto più stabile per internet)
+        public const float FixedDeltaTime = 0.1f; 
         
         public bool IsRunningManualStep = false; 
         public int CurrentTick = 0;
@@ -45,24 +44,21 @@ namespace WorldBoxMultiplayer
         {
             if (!NetworkManager.Instance.IsConnected || _initFailed) return;
 
+            // Inizializzazione sicura (evita crash se MapBox non è pronto)
             if (_mapBoxUpdateMethod == null)
             {
-                if (MapBox.instance == null) return;
+                if (World.world == null) return;
                 _mapBoxUpdateMethod = AccessTools.Method(typeof(MapBox), "Update");
-                if (_mapBoxUpdateMethod == null)
-                {
-                    _initFailed = true;
-                    NetworkManager.Instance.Disconnect();
-                    return;
-                }
+                if (_mapBoxUpdateMethod == null) { _initFailed = true; return; }
             }
 
             _accumulatedTime += Time.deltaTime;
 
-            // SICUREZZA: Non eseguire più di 5 tick per frame per evitare freeze se si lagga troppo
+            // ANTI-FREEZE: Se accumuliamo troppi tick (lag), limitiamo a 5 per frame per non bloccare il PC
             int loops = 0;
             while (_accumulatedTime >= FixedDeltaTime && loops < 5)
             {
+                // Se sono CLIENT, posso andare avanti solo se il server mi ha dato l'OK (_serverTickLimit)
                 bool canAdvance = NetworkManager.Instance.IsHost() || CurrentTick < _serverTickLimit;
 
                 if (canAdvance)
@@ -70,6 +66,7 @@ namespace WorldBoxMultiplayer
                     RunGameTick();
                     _accumulatedTime -= FixedDeltaTime;
                     
+                    // Se sono HOST, notifico il progresso
                     if (NetworkManager.Instance.IsHost())
                     {
                         NetworkManager.Instance.SendTickSync(CurrentTick);
@@ -78,6 +75,7 @@ namespace WorldBoxMultiplayer
                 }
                 else
                 {
+                    // Waiting for server...
                     break; 
                 }
             }
@@ -85,6 +83,7 @@ namespace WorldBoxMultiplayer
 
         private void RunGameTick()
         {
+            // 1. Esegui i comandi ricevuti per questo turno
             if (PendingActions.ContainsKey(CurrentTick))
             {
                 foreach (var actionJson in PendingActions[CurrentTick])
@@ -94,13 +93,13 @@ namespace WorldBoxMultiplayer
                 PendingActions.Remove(CurrentTick);
             }
 
-            if (MapBox.instance != null && !MapBox.instance.isPaused())
+            // 2. Esegui il turno di gioco vero e proprio
+            if (World.world != null && !World.world.isPaused())
             {
                 try 
                 {
                     IsRunningManualStep = true; 
-                    // Qui dentro ora Time.deltaTime varrà sempre 0.05f grazie alla patch!
-                    _mapBoxUpdateMethod.Invoke(MapBox.instance, null);
+                    _mapBoxUpdateMethod.Invoke(World.world, null);
                     IsRunningManualStep = false; 
                 }
                 catch { IsRunningManualStep = false; }
@@ -121,12 +120,12 @@ namespace WorldBoxMultiplayer
                     string powerID = parts[1];
                     int x = int.Parse(parts[2]);
                     int y = int.Parse(parts[3]);
-                    WorldTile tile = MapBox.instance.GetTile(x, y);
+                    WorldTile tile = World.world.GetTile(x, y);
                     
                     GodPower power = AssetManager.powers.get(powerID);
                     if (power != null && tile != null) 
                     {
-                        IsRunningManualStep = true;
+                        IsRunningManualStep = true; // Permette alla patch di far passare l'azione
 
                         if (power.click_action != null)
                         {
@@ -134,12 +133,10 @@ namespace WorldBoxMultiplayer
                         }
                         else if (!string.IsNullOrEmpty(power.drop_id))
                         {
-                            object dropManager = Traverse.Create(MapBox.instance).Field("drop_manager").GetValue();
-                            if (dropManager != null)
-                            {
-                                Traverse.Create(dropManager).Method("spawn", new object[] { tile, power.drop_id, -1f, -1f, -1L }).GetValue();
-                            }
+                            // Usa il metodo sicuro per i drop (pioggia, semi, bombe)
+                            World.world.drop_manager.spawn(tile, power.drop_id);
                         }
+                        
                         IsRunningManualStep = false; 
                     }
                 }
