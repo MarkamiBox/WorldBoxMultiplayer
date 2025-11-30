@@ -3,7 +3,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.IO;
 using System;
-using System.Collections.Generic;
+using HarmonyLib; // Necessario per Reflection
 
 namespace WorldBoxMultiplayer
 {
@@ -43,7 +43,7 @@ namespace WorldBoxMultiplayer
         {
             try {
                 _client = new TcpClient();
-                _client.NoDelay = true; // Fondamentale per ridurre il lag
+                _client.NoDelay = true; 
                 _client.Connect(ip, port);
                 _stream = _client.GetStream();
                 IsConnected = true;
@@ -59,7 +59,6 @@ namespace WorldBoxMultiplayer
                 _stream = _client.GetStream();
                 Debug.Log("[Multiplayer] Client entrato!");
                 
-                // Appena entra, invia il Seed attuale per sincronizzare la mappa
                 SendMapSeed();
             } catch (Exception e) { Debug.LogError("Errore connessione: " + e.Message); }
         }
@@ -67,24 +66,22 @@ namespace WorldBoxMultiplayer
         public void SendMapSeed()
         {
             if (!IsMultiplayerReady) return;
-            // M | Seed | SizeID
-            int seed = World.world.mapStats.seed;
-            string size = Config.customMapSize; // Es "standard" o "giant"
+            // FIX: Usiamo Reflection per leggere il seed
+            int seed = Traverse.Create(MapBox.instance).Field("mapStats").Field("seed").GetValue<int>();
+            string size = Config.customMapSize; 
             SendRaw($"M|{seed}|{size}\n");
         }
 
         public void SendAction(string actionData)
         {
             if (!IsMultiplayerReady) return;
-            // G | TickTarget | Azione
-            int targetTick = LockstepController.Instance.CurrentTick + 2; // Ritardo ridotto a 2 tick
+            int targetTick = LockstepController.Instance.CurrentTick + 2; 
             SendRaw($"G|{targetTick}|{actionData}\n");
         }
 
         public void SendTickSync(int tick)
         {
             if (!IsMultiplayerReady || !_isHost) return;
-            // T | TickCorrente (Dice al client: "Puoi avanzare fino a qui")
             SendRaw($"T|{tick}\n");
         }
 
@@ -122,28 +119,27 @@ namespace WorldBoxMultiplayer
 
                         string type = parts[0];
 
-                        if (type == "G") // Game Action
+                        if (type == "G") 
                         {
                             int tick = int.Parse(parts[1]);
                             string content = parts[2];
                             LockstepController.Instance.AddPendingAction(tick, content);
                         }
-                        else if (type == "T") // Tick Sync (Dal Server)
+                        else if (type == "T") 
                         {
                             int serverTick = int.Parse(parts[1]);
                             LockstepController.Instance.SetServerTick(serverTick);
                         }
-                        else if (type == "C") // Cursore
+                        else if (type == "C") 
                         {
                             float x = float.Parse(parts[1]);
                             float y = float.Parse(parts[2]);
                             if (CursorHandler.Instance) CursorHandler.Instance.UpdateRemoteCursor(x, y);
                         }
-                        else if (type == "M") // Map Sync
+                        else if (type == "M") 
                         {
                             int seed = int.Parse(parts[1]);
                             string size = parts[2];
-                            // Rigenera il mondo con lo stesso seme!
                             WorldBoxMultiplayer.instance.SyncMap(seed, size);
                         }
                     }

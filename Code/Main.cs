@@ -1,7 +1,7 @@
 using UnityEngine;
 using HarmonyLib;
 using System.Reflection;
-using NCMS; // Serve per [ModEntry]
+using NCMS; 
 using System.Net; 
 using System.Net.Sockets;
 
@@ -37,13 +37,16 @@ namespace WorldBoxMultiplayer
             catch (System.Exception e) { Debug.LogError(e.Message); }
         }
 
-        // Funzione chiamata dal NetworkManager quando riceve M|SEED|SIZE
         public void SyncMap(int seed, string size)
         {
             Debug.Log($"[Sync] Generazione mondo Sync: Seed {seed}, Size {size}");
             Config.customMapSize = size;
-            World.world.mapStats.seed = seed;
-            MapBox.instance.generateNewMap(false); // False = no spawn miracolosi extra
+            
+            // FIX: Usiamo Reflection per impostare il seed perché mapStats potrebbe essere inaccessibile
+            Traverse.Create(MapBox.instance).Field("mapStats").Field("seed").SetValue(seed);
+            
+            // FIX: generateNewMap non vuole argomenti
+            MapBox.instance.generateNewMap(); 
         }
 
         void Update()

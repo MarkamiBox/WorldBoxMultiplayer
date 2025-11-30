@@ -9,30 +9,20 @@ namespace WorldBoxMultiplayer
     {
         static bool Prefix()
         {
+            // 1. Turno Manuale del Lockstep -> Lascia passare
             if (LockstepController.Instance != null && LockstepController.Instance.IsRunningManualStep)
+            {
                 return true; 
-            
-            if (NetworkManager.Instance != null && NetworkManager.Instance.IsMultiplayerReady)
-            {
-                InputHandler.CheckInput();
-                return false; // Blocca Unity
             }
-            return true;
-        }
-    }
 
-    [HarmonyPatch(typeof(PowerLibrary), "checkPower")]
-    class PowerLibrary_CheckPower_Patch
-    {
-        static bool Prefix()
-        {
-            // Blocca l'uso locale dei poteri se siamo in multiplayer e non è un turno lockstep
+            // 2. Multiplayer Attivo -> Gestisci Input e Blocca Unity
             if (NetworkManager.Instance != null && NetworkManager.Instance.IsMultiplayerReady)
             {
-                if (LockstepController.Instance != null && LockstepController.Instance.IsRunningManualStep)
-                    return true; // Lascia passare
-                return false; // Blocca
+                // Gestiamo l'input qui invece di patchare bottoni specifici
+                InputHandler.CheckInput();
+                return false; 
             }
+
             return true;
         }
     }
@@ -40,16 +30,25 @@ namespace WorldBoxMultiplayer
     public static class InputHandler
     {
         private static float _nextActionTime = 0f;
-        // 0.05s = 20 click al secondo (perfetto per trascinare)
         private const float ACTION_INTERVAL = 0.05f; 
 
         public static void CheckInput()
         {
+            // Se il mouse è premuto e stiamo puntando la mappa
             if (Input.GetMouseButton(0) && Time.time >= _nextActionTime)
             {
-                HandleClick();
-                _nextActionTime = Time.time + ACTION_INTERVAL;
+                if (!IsMouseOverUI())
+                {
+                    HandleClick();
+                    _nextActionTime = Time.time + ACTION_INTERVAL;
+                }
             }
+        }
+
+        static bool IsMouseOverUI()
+        {
+            // Controllo basico se siamo sopra la UI (opzionale, ma utile)
+            return UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject();
         }
 
         static void HandleClick()
@@ -57,6 +56,7 @@ namespace WorldBoxMultiplayer
             var selector = PowerButtonSelector.instance;
             if (selector == null || selector.selectedButton == null) return;
 
+            // Reflection per ottenere il potere selezionato in modo sicuro
             GodPower power = Traverse.Create(selector.selectedButton).Field("godPower").GetValue<GodPower>();
             if (power == null) return;
 
