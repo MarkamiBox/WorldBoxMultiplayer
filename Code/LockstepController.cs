@@ -8,12 +8,15 @@ namespace WorldBoxMultiplayer
     public class LockstepController : MonoBehaviour
     {
         public static LockstepController Instance;
+        
+        // COSTANTE TEMPO FISSO: Tutti i PC simuleranno 0.05 secondi per ogni Tick.
+        // Questo elimina il problema della velocità diversa tra PC potenti e lenti.
+        public const float FixedDeltaTime = 0.05f; 
+        
         public bool IsRunningManualStep = false; 
         public int CurrentTick = 0;
         
         private float _accumulatedTime = 0f;
-        private const float MsPerTick = 0.1f; 
-
         private MethodInfo _mapBoxUpdateMethod;
         private bool _initFailed = false;
         
@@ -52,24 +55,26 @@ namespace WorldBoxMultiplayer
                     NetworkManager.Instance.Disconnect();
                     return;
                 }
-                Debug.Log("[WorldBoxMultiplayer] Motore agganciato!");
             }
 
             _accumulatedTime += Time.deltaTime;
 
-            while (_accumulatedTime >= MsPerTick)
+            // SICUREZZA: Non eseguire più di 5 tick per frame per evitare freeze se si lagga troppo
+            int loops = 0;
+            while (_accumulatedTime >= FixedDeltaTime && loops < 5)
             {
                 bool canAdvance = NetworkManager.Instance.IsHost() || CurrentTick < _serverTickLimit;
 
                 if (canAdvance)
                 {
                     RunGameTick();
-                    _accumulatedTime -= MsPerTick;
+                    _accumulatedTime -= FixedDeltaTime;
                     
                     if (NetworkManager.Instance.IsHost())
                     {
                         NetworkManager.Instance.SendTickSync(CurrentTick);
                     }
+                    loops++;
                 }
                 else
                 {
@@ -94,6 +99,7 @@ namespace WorldBoxMultiplayer
                 try 
                 {
                     IsRunningManualStep = true; 
+                    // Qui dentro ora Time.deltaTime varrà sempre 0.05f grazie alla patch!
                     _mapBoxUpdateMethod.Invoke(MapBox.instance, null);
                     IsRunningManualStep = false; 
                 }
@@ -124,20 +130,16 @@ namespace WorldBoxMultiplayer
 
                         if (power.click_action != null)
                         {
-                            // Potere standard (Spawn, Fulmine)
                             power.click_action(tile, powerID);
                         }
                         else if (!string.IsNullOrEmpty(power.drop_id))
                         {
-                            // Drop (Pioggia, Bombe, Semi)
-                            // Usiamo Reflection per accedere al drop_manager in modo sicuro
                             object dropManager = Traverse.Create(MapBox.instance).Field("drop_manager").GetValue();
                             if (dropManager != null)
                             {
-                                Traverse.Create(dropManager).Method("spawn", new object[] { tile, power.drop_id, -1f, -1f, -1 }).GetValue();
+                                Traverse.Create(dropManager).Method("spawn", new object[] { tile, power.drop_id, -1f, -1f, -1L }).GetValue();
                             }
                         }
-                        
                         IsRunningManualStep = false; 
                     }
                 }

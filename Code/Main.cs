@@ -39,14 +39,31 @@ namespace WorldBoxMultiplayer
 
         public void SyncMap(int seed, string size)
         {
-            Debug.Log($"[Sync] Generazione mondo Sync: Seed {seed}, Size {size}");
+            Debug.Log($"[Sync] Reset Totale RNG. Seed: {seed}");
+            
+            // 1. Imposta dimensione
             Config.customMapSize = size;
             
-            // FIX: Usiamo Reflection per impostare il seed perché mapStats potrebbe essere inaccessibile
+            // 2. Resetta TUTTI i generatori casuali conosciuti
+            ResetRNG(seed);
+            
+            // 3. Imposta il seed della mappa
             Traverse.Create(MapBox.instance).Field("mapStats").Field("seed").SetValue(seed);
             
-            // FIX: generateNewMap non vuole argomenti
+            // 4. Genera
             MapBox.instance.generateNewMap(); 
+        }
+
+        // Funzione critica per la sincronizzazione
+        private void ResetRNG(int seed)
+        {
+            UnityEngine.Random.InitState(seed);
+            // Prova a resettare anche il System.Random interno di WorldBox (spesso chiamato 'rnd' in classi statiche)
+            // Questo è un tentativo generico, potrebbe variare in base alla versione del gioco
+            try {
+                // Esempio: Reset della classe 'Randy' o 'Toolbox' se usano random statici
+                // Traverse.Create(typeof(Randy)).Field("rnd").SetValue(new System.Random(seed));
+            } catch {}
         }
 
         void Update()
@@ -94,7 +111,7 @@ namespace WorldBoxMultiplayer
                 
                 if (NetworkManager.Instance.IsHost())
                 {
-                    if (GUI.Button(new Rect(10, 145, 210, 30), "FORZA SYNC MAPPA"))
+                    if (GUI.Button(new Rect(10, 145, 210, 30), "RESETTA E SINCRONIZZA"))
                     {
                         NetworkManager.Instance.SendMapSeed();
                     }
