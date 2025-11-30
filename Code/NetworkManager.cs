@@ -3,7 +3,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.IO;
 using System;
-using HarmonyLib; // Necessario per Reflection
+using HarmonyLib; 
 
 namespace WorldBoxMultiplayer
 {
@@ -35,7 +35,7 @@ namespace WorldBoxMultiplayer
                 _server.BeginAcceptTcpClient(OnClientConnected, null);
                 _isHost = true;
                 IsConnected = true; 
-                Debug.Log("[Multiplayer] Server Avviato. In attesa...");
+                Debug.Log("[Multiplayer] Server Avviato.");
             } catch (Exception e) { Debug.LogError("Errore Host: " + e.Message); }
         }
 
@@ -58,7 +58,6 @@ namespace WorldBoxMultiplayer
                 _client.NoDelay = true;
                 _stream = _client.GetStream();
                 Debug.Log("[Multiplayer] Client entrato!");
-                
                 SendMapSeed();
             } catch (Exception e) { Debug.LogError("Errore connessione: " + e.Message); }
         }
@@ -66,7 +65,7 @@ namespace WorldBoxMultiplayer
         public void SendMapSeed()
         {
             if (!IsMultiplayerReady) return;
-            // FIX: Usiamo Reflection per leggere il seed
+            // FIX: Usa Traverse per leggere il seed privato
             int seed = Traverse.Create(MapBox.instance).Field("mapStats").Field("seed").GetValue<int>();
             string size = Config.customMapSize; 
             SendRaw($"M|{seed}|{size}\n");

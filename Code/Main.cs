@@ -25,7 +25,7 @@ namespace WorldBoxMultiplayer
             try 
             {
                 _myLocalIP = GetLocalIPAddress();
-                Harmony harmony = new Harmony("com.markami.worldbox.multiplayer.final");
+                Harmony harmony = new Harmony("com.markami.worldbox.multiplayer.unique");
                 harmony.PatchAll();
                 
                 if (GetComponent<NetworkManager>() == null) gameObject.AddComponent<NetworkManager>();
@@ -44,17 +44,23 @@ namespace WorldBoxMultiplayer
             // 1. Imposta dimensione
             Config.customMapSize = size;
             
-            // 2. RESET TOTALE RNG (Fondamentale per mappe identiche)
+            // 2. RESET TOTALE RNG
             UnityEngine.Random.InitState(seed);
             
-            // 3. Imposta il seed interno di WorldBox
-            World.world.mapStats.seed = seed;
+            // 3. Imposta il seed interno (FIX: usa Traverse perché mapStats è privato)
+            Traverse.Create(MapBox.instance).Field("mapStats").Field("seed").SetValue(seed);
             
-            // 4. Genera
-            World.world.generateNewMap();
+            // 4. Genera (FIX: generateNewMap non vuole argomenti)
+            MapBox.instance.generateNewMap();
             
-            // 5. Forza la camera al centro
-            World.world.camera.centerCamera();
+            // 5. Centra la camera (FIX: usa Reflection per trovare move_camera)
+            try {
+                object moveCam = Traverse.Create(MapBox.instance).Field("move_camera").GetValue();
+                if (moveCam != null)
+                {
+                     Traverse.Create(moveCam).Method("centerCamera").GetValue();
+                }
+            } catch {}
         }
 
         void Update()
@@ -65,7 +71,7 @@ namespace WorldBoxMultiplayer
         void OnGUI()
         {
             if (!_showUI) return;
-            _windowRect = GUI.Window(102030, _windowRect, DrawWindow, "Multiplayer v0.8");
+            _windowRect = GUI.Window(102030, _windowRect, DrawWindow, "Multiplayer v1.0");
         }
 
         void DrawWindow(int id)
@@ -84,7 +90,7 @@ namespace WorldBoxMultiplayer
                 if (GUI.Button(new Rect(10, 105, 120, 30), "HOST"))
                 {
                     NetworkManager.Instance.StartHost(int.Parse(_port));
-                    _status = "In attesa di giocatori...";
+                    _status = "In attesa...";
                 }
                 if (GUI.Button(new Rect(140, 105, 120, 30), "JOIN"))
                 {
@@ -103,7 +109,7 @@ namespace WorldBoxMultiplayer
                 if (NetworkManager.Instance.IsHost())
                 {
                     GUI.color = Color.green;
-                    if (GUI.Button(new Rect(10, 145, 260, 40), "SINCRONIZZA MAPPA E UTENTI"))
+                    if (GUI.Button(new Rect(10, 145, 260, 40), "SINCRONIZZA MAPPA"))
                     {
                         NetworkManager.Instance.SendMapSeed();
                     }
