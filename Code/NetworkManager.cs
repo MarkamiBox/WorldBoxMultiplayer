@@ -6,6 +6,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using HarmonyLib; 
+using System.Net;
 
 namespace WorldBoxMultiplayer
 {
@@ -33,7 +34,7 @@ namespace WorldBoxMultiplayer
         public void StartHost(int port)
         {
             try {
-                _server = new TcpListener(System.Net.IPAddress.Any, port);
+                _server = new TcpListener(IPAddress.Any, port);
                 _server.Start();
                 _server.BeginAcceptTcpClient(OnClientConnected, null);
                 _isHost = true;
@@ -69,7 +70,7 @@ namespace WorldBoxMultiplayer
                 _client = _server.EndAcceptTcpClient(ar);
                 _client.NoDelay = true;
                 _stream = _client.GetStream();
-                Debug.Log("[Multiplayer] Client joined! Triggering Sync...");
+                Debug.Log("[Multiplayer] Client joined! Triggering Transfer...");
                 _shouldStartTransfer = true; 
             } catch (Exception e) { Debug.LogError("Conn Error: " + e.Message); }
         }
@@ -77,7 +78,7 @@ namespace WorldBoxMultiplayer
         void Update()
         {
             if (_shouldStartTransfer) { 
-                WorldBoxMultiplayer.instance.UpdateStatus("Player Joined! Syncing...");
+                WorldBoxMultiplayer.instance.UpdateStatus("Sending Map (Slot 15)...");
                 SaveTransferHandler.Instance.StartTransfer(); 
                 _shouldStartTransfer = false; 
             }
@@ -100,7 +101,6 @@ namespace WorldBoxMultiplayer
                         {
                             string packet = content.Substring(0, newlineIndex).Trim();
                             content = content.Substring(newlineIndex + 1);
-                            
                             if (!string.IsNullOrEmpty(packet)) ProcessPacket(packet);
                         }
                         _incomingBuffer.Clear();
@@ -119,10 +119,7 @@ namespace WorldBoxMultiplayer
                 if (parts.Length < 1) return;
                 string type = parts[0];
 
-                if (type == "FILE_START") {
-                    Debug.Log("[Net] FILE START RECEIVED");
-                    SaveTransferHandler.Instance.OnReceiveStart(int.Parse(parts[1]), int.Parse(parts[2]));
-                }
+                if (type == "FILE_START") SaveTransferHandler.Instance.OnReceiveStart(int.Parse(parts[1]), int.Parse(parts[2]));
                 else if (type == "FILE_DATA") SaveTransferHandler.Instance.OnReceiveChunk(int.Parse(parts[1]), parts[2]);
                 
                 else if (IsMapLoaded) {
@@ -138,13 +135,11 @@ namespace WorldBoxMultiplayer
                     else if (type == "K") WorldBoxMultiplayer.instance.SetKingdomData(long.Parse(parts[1]), int.Parse(parts[2]), int.Parse(parts[3]));
                 }
                 
-                if (type == "D") { Debug.Log("[Sync] Partner disconnected."); Disconnect(); }
+                if (type == "D") Disconnect();
 
             } catch (Exception e) { Debug.LogError($"Packet Error: {e.Message}"); }
         }
-
-        // ... [RESTO DEI METODI UGUALE A PRIMA: SendRaw, SendAction, SyncChecker, Disconnect etc] ...
-        // Copia dal file precedente per completezza o mantieni quelli invariati
+        
         private IEnumerator SyncCheckerRoutine() { while(true) { if(IsMultiplayerReady && IsMapLoaded) { CheckLaws(); CheckSpeed(); CheckEra(); } yield return new WaitForSeconds(0.5f); } }
         private void CheckSpeed() { if (Config.time_scale_asset != null && _lastSpeed != Config.time_scale_asset.id) { _lastSpeed = Config.time_scale_asset.id; SendSpeedChange(_lastSpeed); } }
         private void CheckEra() { object ae = Traverse.Create(World.world.era_manager).Field("active_era").GetValue(); if(ae!=null){ string id = Traverse.Create(ae).Field("id").GetValue<string>(); if(_lastEra!=id){ _lastEra=id; SendEraChange(id); } } }

@@ -15,10 +15,9 @@ namespace WorldBoxMultiplayer
         public static WorldBoxMultiplayer instance;
         private bool _showUI = false;
         private Rect _windowRect = new Rect(20, 20, 280, 400);
-        
         private string _roomCodeInput = "";
         private string _port = "7777";
-        private string _status = "Disconnected"; // Stato visibile
+        private string _status = "Disconnected";
         private string _myRoomCode = "Generating..."; 
         private string _myLocalIP = "127.0.0.1";
 
@@ -30,7 +29,6 @@ namespace WorldBoxMultiplayer
                 _myRoomCode = GenerateRoomCode(_myLocalIP, "7777");
                 Harmony harmony = new Harmony("com.markami.worldbox.multiplayer.final");
                 harmony.PatchAll();
-                
                 if (GetComponent<NetworkManager>() == null) gameObject.AddComponent<NetworkManager>();
                 if (GetComponent<LockstepController>() == null) gameObject.AddComponent<LockstepController>();
                 if (GetComponent<CursorHandler>() == null) gameObject.AddComponent<CursorHandler>();
@@ -39,12 +37,8 @@ namespace WorldBoxMultiplayer
             } catch (Exception e) { Debug.LogError(e.Message); }
         }
 
-        // Metodo pubblico per aggiornare lo stato
-        public void UpdateStatus(string newStatus) {
-            _status = newStatus;
-        }
-
-        // --- SYNC FUNCTIONS (Invariate) ---
+        public void UpdateStatus(string s) { _status = s; }
+        
         public void SetName(string type, long id, string name64) {
             try {
                 string name = Encoding.UTF8.GetString(Convert.FromBase64String(name64));
@@ -86,18 +80,22 @@ namespace WorldBoxMultiplayer
                 GUI.color = Color.green;
                 GUI.Box(new Rect(10, 80, 260 * SaveTransferHandler.Instance.Progress, 20), "");
                 GUI.color = Color.white;
+                GUI.Label(new Rect(10, 105, 260, 20), $"{(int)(SaveTransferHandler.Instance.Progress * 100)}%");
                 GUI.DragWindow();
                 return;
             }
             GUI.color = Color.yellow;
-            GUI.Label(new Rect(10, 25, 260, 20), "IP: " + _myLocalIP);
+            GUI.Label(new Rect(10, 25, 260, 20), "YOUR IP: " + _myLocalIP);
             GUI.color = Color.white;
             GUI.Label(new Rect(10, 50, 260, 20), "Status: " + _status);
-            
             if (LockstepController.Instance.DesyncDetected) {
                 GUI.color = Color.red;
                 GUI.Label(new Rect(10, 80, 260, 40), "DESYNC DETECTED!\nGame paused.");
                 if (NetworkManager.Instance.IsHost() && GUI.Button(new Rect(10, 120, 260, 30), "FIX SYNC")) NetworkManager.Instance.RequestResync();
+                GUI.color = Color.white;
+            } else if (NetworkManager.Instance.IsConnected) {
+                GUI.color = Color.green;
+                GUI.Label(new Rect(10, 80, 260, 20), "GAME SYNCED");
                 GUI.color = Color.white;
             }
 
