@@ -49,72 +49,7 @@ namespace WorldBoxMultiplayer
 
         // ... (WaitForFileAndSend remains same) ...
 
-        private void FinishReception()
-        {
-            IsTransferring = false;
-            Debug.Log("[Sync] Download finished. Installing map...");
-            WorldBoxMultiplayer.instance.UpdateStatus("Loading World...");
 
-            try {
-                using (MemoryStream ms = new MemoryStream()) {
-                    for (int i = 0; i < _totalChunks; i++) {
-                        if (_receivedChunks.ContainsKey(i)) ms.Write(_receivedChunks[i], 0, _receivedChunks[i].Length);
-                        else { Debug.LogError($"[Sync] MISSING CHUNK {i}"); return; }
-                    }
-                    
-                    byte[] compressedData = ms.ToArray();
-                    byte[] rawData = Decompress(compressedData);
-                    
-                    string path = GetSavePath(SYNC_SLOT_ID);
-                    Directory.CreateDirectory(Path.GetDirectoryName(path));
-                    File.WriteAllBytes(path, rawData);
-                }
-
-                // Carica lo slot 15
-                CallGameLoad(SYNC_SLOT_ID);
-                
-                // Wait for game to finish loading
-                StartCoroutine(WaitForMapLoad());
-
-            } catch (Exception e) {
-                Debug.LogError("[Sync] Load Error: " + e.Message);
-                NetworkManager.Instance.IsMapLoaded = true; 
-                NetworkManager.Instance.Disconnect(); 
-            }
-        }
-
-        private IEnumerator WaitForMapLoad()
-        {
-            Debug.Log("[Sync] Waiting for game to load...");
-            yield return new WaitForSeconds(1f); // Give time for loading to start
-
-            // Wait while loading
-            while (IsGameLoading()) {
-                yield return new WaitForSeconds(0.5f);
-            }
-
-            Debug.Log("[Sync] MAP LOADED! Unpausing...");
-            NetworkManager.Instance.IsMapLoaded = true;
-            LockstepController.Instance.CurrentTick = 0;
-            WorldBoxMultiplayer.instance.UpdateStatus("Connected & Synced");
-            
-            // Unpause client
-            Config.paused = false;
-        }
-
-        private bool IsGameLoading()
-        {
-            try {
-                Type saveMgrType = AccessTools.TypeByName("SaveManager");
-                if (saveMgrType != null) {
-                    UnityEngine.Object instance = UnityEngine.Object.FindObjectOfType(saveMgrType);
-                    if (instance != null) {
-                        return Traverse.Create(instance).Method("isLoadingSaveAnimationActive").GetValue<bool>();
-                    }
-                }
-            } catch {}
-            return false;
-        }
 
         private bool CallGameSave(int slot)
         {
