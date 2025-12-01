@@ -79,8 +79,6 @@ namespace WorldBoxMultiplayer
             // 3. Leggi il file
             byte[] rawData = null;
             try {
-                // Piccolo ritardo extra per assicurarsi che la scrittura sia finita (file lock)
-                yield return new WaitForSeconds(0.2f); 
                 rawData = File.ReadAllBytes(path);
             } catch (Exception e) {
                 Debug.LogError($"[Sync] File Read Error: {e.Message}");
