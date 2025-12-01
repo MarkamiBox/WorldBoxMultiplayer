@@ -214,13 +214,13 @@ namespace WorldBoxMultiplayer
 
         private byte[] Compress(byte[] data) {
             using (MemoryStream output = new MemoryStream()) {
-                using (GZipStream dstream = new GZipStream(output, CompressionLevel.Fastest)) { dstream.Write(data, 0, data.Length); }
+                using (GZipStream dstream = new GZipStream(output, System.IO.Compression.CompressionLevel.Fastest)) { dstream.Write(data, 0, data.Length); }
                 return output.ToArray();
             }
         }
         private byte[] Decompress(byte[] data) {
             using (MemoryStream input = new MemoryStream(data))
-            using (GZipStream dstream = new GZipStream(input, CompressionMode.Decompress))
+            using (GZipStream dstream = new GZipStream(input, System.IO.Compression.CompressionMode.Decompress))
             using (MemoryStream output = new MemoryStream()) { dstream.CopyTo(output); return output.ToArray(); }
         }
     }
