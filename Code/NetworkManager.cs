@@ -101,7 +101,10 @@ namespace WorldBoxMultiplayer
         private void OnClientConnected(IAsyncResult ar)
         {
             try {
+                if (_server == null) return;
                 _client = _server.EndAcceptTcpClient(ar);
+                if (_client == null) return;
+                
                 _client.NoDelay = true;
                 _stream = _client.GetStream();
                 _shouldSyncMap = true; 
@@ -109,7 +112,7 @@ namespace WorldBoxMultiplayer
         }
 
         public void SendRaw(string message) { 
-            if (_stream == null || !_client.Connected) return;
+            if (_stream == null || _client == null || !_client.Connected) return;
             try { 
                 byte[] msg = Encoding.UTF8.GetBytes(message); 
                 _stream.Write(msg, 0, msg.Length); 

@@ -76,6 +76,20 @@ namespace WorldBoxMultiplayer
             Progress = 0f;
             Config.paused = true;
             Debug.Log($"[Sync] Receiving {totalBytes} bytes in {totalChunks} chunks...");
+            StartCoroutine(TransferTimeoutRoutine());
+        }
+
+        private System.Collections.IEnumerator TransferTimeoutRoutine() {
+            float timer = 0f;
+            while (IsTransferring && timer < 30f) {
+                timer += Time.unscaledDeltaTime;
+                yield return null;
+            }
+            if (IsTransferring) {
+                Debug.LogError("[Sync] Transfer Timed Out!");
+                IsTransferring = false;
+                Config.paused = false;
+            }
         }
 
         public void OnReceiveChunk(int index, string dataB64)
@@ -92,25 +106,29 @@ namespace WorldBoxMultiplayer
         {
             IsTransferring = false;
             Debug.Log("[Sync] Reception Complete. Processing...");
-            using (MemoryStream ms = new MemoryStream()) {
-                for (int i = 0; i < _totalChunks; i++) if (_receivedChunks.ContainsKey(i)) ms.Write(_receivedChunks[i], 0, _receivedChunks[i].Length);
-                byte[] compressedData = ms.ToArray();
-                byte[] rawData = Decompress(compressedData);
-                string path = Application.persistentDataPath + "/saves/" + SYNC_SLOT + ".wbox";
-                File.WriteAllBytes(path, rawData);
-            }
-            
-            // Use Traverse to call SaveManager.loadGame(string)
             try {
-                var trav = Traverse.Create(Type.GetType("SaveManager"));
-                if (trav.Method("loadGame", new object[] { SYNC_SLOT }).MethodExists()) {
-                    trav.Method("loadGame", new object[] { SYNC_SLOT }).GetValue();
-                    Debug.Log("[Sync] Game Loaded Successfully!");
+                using (MemoryStream ms = new MemoryStream()) {
+                    for (int i = 0; i < _totalChunks; i++) if (_receivedChunks.ContainsKey(i)) ms.Write(_receivedChunks[i], 0, _receivedChunks[i].Length);
+                    byte[] compressedData = ms.ToArray();
+                    byte[] rawData = Decompress(compressedData);
+                    string path = Application.persistentDataPath + "/saves/" + SYNC_SLOT + ".wbox";
+                    File.WriteAllBytes(path, rawData);
                 }
-                else 
-                    Debug.LogError("[Sync] SaveManager.loadGame not found!");
+                
+                // Use Traverse to call SaveManager.loadGame(string)
+                var saveMgrType = Type.GetType("SaveManager");
+                if (saveMgrType != null) {
+                    var trav = Traverse.Create(saveMgrType);
+                    if (trav.Method("loadGame", new object[] { SYNC_SLOT }).MethodExists()) {
+                        trav.Method("loadGame", new object[] { SYNC_SLOT }).GetValue();
+                        Debug.Log("[Sync] Game Loaded Successfully!");
+                    }
+                    else Debug.LogError("[Sync] SaveManager.loadGame not found!");
+                } else Debug.LogError("[Sync] SaveManager class not found!");
+                
             } catch (Exception e) { Debug.LogError("[Sync] Load Error: " + e.Message); }
             
+            Config.paused = false;
             NetworkManager.Instance.SendTickSync(0);
         }
 
