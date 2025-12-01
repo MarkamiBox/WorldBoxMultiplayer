@@ -91,7 +91,16 @@ namespace WorldBoxMultiplayer
                 if (finger != null) icon = finger.getIconSprite();
             }
 
-            if (icon != null) _cursorRenderer.sprite = icon;
+            if (icon != null) {
+                _cursorRenderer.sprite = icon;
+                _cursorRenderer.color = Color.white; // Reset color if we have a sprite
+            }
+            else {
+                // Fallback if absolutely no sprites found
+                Debug.LogWarning($"[Cursor] Could not load sprite for {powerID} or god_finger");
+                // Create a simple square texture if needed, or just keep it magenta
+                _cursorRenderer.sprite = null; 
+            }
         }
     }
 }

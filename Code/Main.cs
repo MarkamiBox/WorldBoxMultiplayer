@@ -112,7 +112,13 @@ namespace WorldBoxMultiplayer
                 }
             } else {
                 if (GUI.Button(new Rect(10, 280, 260, 30), "DISCONNECT")) NetworkManager.Instance.Disconnect();
-                if (NetworkManager.Instance.IsHost() && GUI.Button(new Rect(10, 320, 260, 30), "FORCE SYNC")) SaveTransferHandler.Instance.StartTransfer();
+                if (NetworkManager.Instance.IsHost()) {
+                    if (GUI.Button(new Rect(10, 320, 260, 30), "FORCE SYNC")) SaveTransferHandler.Instance.StartTransfer();
+                    if (GUI.Button(new Rect(10, 360, 260, 30), "FORCE UNPAUSE")) {
+                        Config.paused = false;
+                        Debug.Log("[Multiplayer] Manually Unpaused");
+                    }
+                }
             }
             GUI.DragWindow();
         }

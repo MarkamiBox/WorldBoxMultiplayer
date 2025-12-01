@@ -125,7 +125,10 @@ namespace WorldBoxMultiplayer
                 else if (IsMapLoaded) {
                     if (type == "G") LockstepController.Instance.AddPendingAction(int.Parse(parts[1]), parts[2]);
                     else if (type == "T") LockstepController.Instance.SetServerTick(int.Parse(parts[1]));
-                    else if (type == "C" && CursorHandler.Instance) CursorHandler.Instance.UpdateRemoteCursor(float.Parse(parts[1]), float.Parse(parts[2]));
+                    else if (type == "C" && CursorHandler.Instance) {
+                        // Debug.Log($"[Net] Cursor Update: {parts[1]}, {parts[2]}"); // Uncomment for verbose debug
+                        CursorHandler.Instance.UpdateRemoteCursor(float.Parse(parts[1]), float.Parse(parts[2]));
+                    }
                     else if (type == "P" && CursorHandler.Instance) CursorHandler.Instance.SetRemotePower(parts[1]);
                     else if (type == "L") WorldBoxMultiplayer.instance.SetLaw(parts[1], bool.Parse(parts[2]));
                     else if (type == "S") WorldBoxMultiplayer.instance.SetSpeed(parts[1]);
