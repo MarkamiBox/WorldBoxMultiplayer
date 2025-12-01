@@ -2,6 +2,7 @@ using UnityEngine;
 using System.IO;
 using System.IO.Compression;
 using System.Collections.Generic;
+using System.Collections;
 using System;
 using System.Reflection;
 using HarmonyLib;
@@ -11,8 +12,10 @@ namespace WorldBoxMultiplayer
     public class SaveTransferHandler : MonoBehaviour
     {
         public static SaveTransferHandler Instance;
-        private const int CHUNK_SIZE = 65536; // 64KB
-        private const string SYNC_SLOT = "save999"; // Usiamo un nome slot standard per evitare errori del gioco
+        
+        // Ridotto per stabilità
+        private const int CHUNK_SIZE = 16384; 
+        private const string SYNC_SLOT = "save999"; 
 
         public bool IsTransferring = false;
         public float Progress = 0f;
@@ -23,105 +26,124 @@ namespace WorldBoxMultiplayer
 
         void Awake() { Instance = this; }
 
+        // --- HOST: INVIO ---
+
         public void StartTransfer()
         {
-            if (IsTransferring) {
-                Debug.LogWarning("[Sync] Transfer already running!");
-                return;
-            }
+            if (IsTransferring) return;
+            StartCoroutine(TransferRoutine());
+        }
+
+        private IEnumerator TransferRoutine()
+        {
             IsTransferring = true;
             Progress = 0f;
-            
-            Debug.Log($"[Sync] 1. Saving Game to slot '{SYNC_SLOT}'...");
-            
-            // Tenta di salvare
-            bool saveOk = CallGameSave(SYNC_SLOT);
-            if (!saveOk) {
-                Debug.LogError("[Sync] FAIL: SaveManager.saveGame returned false/error.");
-                IsTransferring = false;
-                return;
-            }
+            Debug.Log("[Sync] 1. Tentativo salvataggio...");
 
-            // Cerca il file
+            // 1. Chiama il salvataggio del gioco
+            bool saveCallSuccess = CallGameSave(SYNC_SLOT);
+            if (!saveCallSuccess) Debug.LogWarning("[Sync] SaveManager non trovato, provo comunque a cercare il file...");
+
+            // 2. Attesa attiva del file (max 2 secondi)
             string path = GetSavePath(SYNC_SLOT);
-            Debug.Log($"[Sync] 2. Looking for file at: {path}");
+            Debug.Log($"[Sync] 2. Cerco il file in: {path}");
             
-            if (!File.Exists(path)) { 
-                Debug.LogError($"[Sync] FAIL: File not found after save!");
-                IsTransferring = false; 
-                return; 
+            float timeout = 2f;
+            while (!File.Exists(path) && timeout > 0)
+            {
+                timeout -= 0.1f;
+                yield return new WaitForSeconds(0.1f);
             }
 
-            try {
-                byte[] rawData = File.ReadAllBytes(path);
-                Debug.Log($"[Sync] 3. File read. Size: {rawData.Length} bytes. Compressing...");
-                
-                byte[] compressedData = Compress(rawData);
-                Debug.Log($"[Sync] 4. Compressed size: {compressedData.Length} bytes. Sending...");
-
-                StartCoroutine(SendFileRoutine(compressedData));
-            } catch (Exception e) {
-                Debug.LogError($"[Sync] CRITICAL ERROR: {e.Message}");
+            if (!File.Exists(path))
+            {
+                Debug.LogError($"[Sync] ERRORE FATALE: File {path} non trovato dopo il salvataggio!");
                 IsTransferring = false;
+                yield break;
             }
-        }
 
-        private bool CallGameSave(string slot)
-        {
+            // 3. Lettura e Compressione
+            byte[] rawData = null;
             try {
-                // Metodo 1: Reflection su istanza (più probabile)
-                Type saveMgrType = AccessTools.TypeByName("SaveManager");
-                if (saveMgrType != null) {
-                    UnityEngine.Object instance = UnityEngine.Object.FindObjectOfType(saveMgrType);
-                    if (instance != null) {
-                        Traverse.Create(instance).Method("saveGame", new object[] { slot }).GetValue();
-                        return true;
-                    }
-                    // Metodo 2: Statico
-                    MethodInfo method = AccessTools.Method(saveMgrType, "saveGame");
-                    if (method != null) { method.Invoke(null, new object[] { slot }); return true; }
-                }
-            } catch (Exception e) { Debug.LogError($"[Sync] CallGameSave Exception: {e.Message}"); }
-            return false;
-        }
+                rawData = File.ReadAllBytes(path);
+            } catch (Exception e) {
+                Debug.LogError($"[Sync] Errore lettura file: {e.Message}");
+                IsTransferring = false;
+                yield break;
+            }
 
-        private string GetSavePath(string slot)
-        {
-            return System.IO.Path.Combine(Application.persistentDataPath, "saves", $"{slot}.wbox");
-        }
+            Debug.Log($"[Sync] 3. File letto ({rawData.Length} bytes). Compressione...");
+            byte[] compressedData = Compress(rawData);
+            Debug.Log($"[Sync] 4. Compresso a {compressedData.Length} bytes. Invio...");
 
-        private System.Collections.IEnumerator SendFileRoutine(byte[] data)
-        {
-            int totalChunks = Mathf.CeilToInt((float)data.Length / CHUNK_SIZE);
-            Debug.Log($"[Sync] Sending HEADER. Chunks: {totalChunks}");
+            // 4. Invio
+            int totalChunks = Mathf.CeilToInt((float)compressedData.Length / CHUNK_SIZE);
             
-            NetworkManager.Instance.SendRaw($"FILE_START|{totalChunks}|{data.Length}\n");
-            yield return new WaitForSeconds(0.5f); // Attesa più lunga per l'header
+            // Invia Header
+            NetworkManager.Instance.SendRaw($"FILE_START|{totalChunks}|{compressedData.Length}\n");
+            yield return new WaitForSeconds(0.5f); // Pausa per assicurare che l'header arrivi
 
             for (int i = 0; i < totalChunks; i++)
             {
                 int offset = i * CHUNK_SIZE;
-                int size = Mathf.Min(CHUNK_SIZE, data.Length - offset);
+                int size = Mathf.Min(CHUNK_SIZE, compressedData.Length - offset);
                 byte[] chunk = new byte[size];
-                Array.Copy(data, offset, chunk, 0, size);
+                Array.Copy(compressedData, offset, chunk, 0, size);
                 
                 string b64 = Convert.ToBase64String(chunk);
                 NetworkManager.Instance.SendRaw($"FILE_DATA|{i}|{b64}\n");
                 
                 Progress = (float)i / totalChunks;
-                if (i % 20 == 0) {
-                    Debug.Log($"[Sync] Sending Chunk {i}/{totalChunks}...");
-                    yield return null;
+                
+                // Inviamo un po' più lentamente per non intasare
+                if (i % 10 == 0) 
+                {
+                    Debug.Log($"[Sync] Invio Chunk {i}/{totalChunks}");
+                    yield return null; 
                 }
             }
-            
+
+            Debug.Log("[Sync] INVIO COMPLETATO!");
             IsTransferring = false;
-            Debug.Log("[Sync] SEND COMPLETE!");
         }
+
+        private bool CallGameSave(string slot)
+        {
+            try {
+                Type saveMgrType = AccessTools.TypeByName("SaveManager");
+                if (saveMgrType == null) return false;
+                
+                // Prova metodo statico
+                MethodInfo method = AccessTools.Method(saveMgrType, "saveGame");
+                if (method != null) { method.Invoke(null, new object[] { slot }); return true; }
+
+                // Prova istanza
+                UnityEngine.Object instance = UnityEngine.Object.FindObjectOfType(saveMgrType);
+                if (instance != null) { 
+                    Traverse.Create(instance).Method("saveGame", new object[] { slot }).GetValue(); 
+                    return true; 
+                }
+            } catch (Exception e) { Debug.LogError($"[Sync] Save Error: {e.Message}"); }
+            return false;
+        }
+
+        private string GetSavePath(string slot)
+        {
+            // Cerca in entrambe le posizioni comuni
+            string p1 = Path.Combine(Application.persistentDataPath, "saves", $"{slot}.wbox");
+            if (File.Exists(p1)) return p1;
+            
+            string p2 = Path.Combine(Application.persistentDataPath, "save_folder", $"{slot}.wbox");
+            if (File.Exists(p2)) return p2;
+
+            return p1; // Default
+        }
+
+        // --- CLIENT: RICEZIONE ---
 
         public void OnReceiveStart(int totalChunks, int totalBytes)
         {
-            Debug.Log($"[Sync] RECEIVE START! Expecting {totalBytes} bytes.");
+            Debug.Log($"[Sync] RICEZIONE INIZIATA! Totale: {totalChunks} chunks.");
             IsTransferring = true;
             _totalChunks = totalChunks;
             _receivedChunks.Clear();
@@ -130,7 +152,7 @@ namespace WorldBoxMultiplayer
             
             Config.paused = true;
             NetworkManager.Instance.IsMapLoaded = false;
-            WorldBoxMultiplayer.instance.UpdateStatus("Downloading Map...");
+            WorldBoxMultiplayer.instance.UpdateStatus($"Downloading Map... ({totalChunks})");
         }
 
         public void OnReceiveChunk(int index, string dataB64)
@@ -142,12 +164,7 @@ namespace WorldBoxMultiplayer
                     _receivedChunks[index] = Convert.FromBase64String(dataB64);
                     _receivedCount++;
                     Progress = (float)_receivedCount / _totalChunks;
-                    
-                    // Log ogni 10%
-                    if (_receivedCount % Mathf.Max(1, _totalChunks/10) == 0) 
-                        Debug.Log($"[Sync] Download: {Progress*100:F0}%");
-
-                } catch { Debug.LogError($"[Sync] Chunk {index} CORRUPT!"); }
+                } catch { Debug.LogError($"[Sync] Errore chunk {index}"); }
             }
 
             if (_receivedCount >= _totalChunks) FinishReception();
@@ -156,14 +173,14 @@ namespace WorldBoxMultiplayer
         private void FinishReception()
         {
             IsTransferring = false;
-            Debug.Log("[Sync] DOWNLOAD DONE. Reconstructing...");
-            WorldBoxMultiplayer.instance.UpdateStatus("Loading...");
+            Debug.Log("[Sync] Download finito. Ricostruzione...");
+            WorldBoxMultiplayer.instance.UpdateStatus("Loading World...");
 
             try {
                 using (MemoryStream ms = new MemoryStream()) {
                     for (int i = 0; i < _totalChunks; i++) {
                         if (_receivedChunks.ContainsKey(i)) ms.Write(_receivedChunks[i], 0, _receivedChunks[i].Length);
-                        else { Debug.LogError($"[Sync] MISSING CHUNK {i}!"); return; }
+                        else { Debug.LogError($"[Sync] MANCA IL PEZZO {i}!"); return; }
                     }
                     
                     byte[] compressedData = ms.ToArray();
@@ -174,30 +191,28 @@ namespace WorldBoxMultiplayer
                     File.WriteAllBytes(path, rawData);
                 }
 
-                Debug.Log("[Sync] Loading into game...");
-                CallGameLoad(SYNC_SLOT);
+                Debug.Log("[Sync] Caricamento in gioco...");
                 
-                Debug.Log("[Sync] GAME READY.");
+                // Carica
+                Type saveMgrType = AccessTools.TypeByName("SaveManager");
+                if (saveMgrType != null) {
+                    MethodInfo method = AccessTools.Method(saveMgrType, "loadGame");
+                    if (method != null) method.Invoke(null, new object[] { SYNC_SLOT });
+                    else {
+                        var inst = UnityEngine.Object.FindObjectOfType(saveMgrType);
+                        if(inst != null) Traverse.Create(inst).Method("loadGame", new object[] { SYNC_SLOT }).GetValue();
+                    }
+                }
+                
+                Debug.Log("[Sync] GIOCO PRONTO!");
                 NetworkManager.Instance.IsMapLoaded = true;
                 LockstepController.Instance.CurrentTick = 0;
                 WorldBoxMultiplayer.instance.UpdateStatus("Connected & Synced");
 
             } catch (Exception e) {
-                Debug.LogError("[Sync] LOAD ERROR: " + e.Message);
-                NetworkManager.Instance.IsMapLoaded = true; // Sblocca per evitare softlock
+                Debug.LogError("[Sync] Errore caricamento: " + e.Message);
+                NetworkManager.Instance.IsMapLoaded = true; // Sblocca comunque
             }
-        }
-
-        private void CallGameLoad(string slot)
-        {
-            try {
-                Type saveMgrType = AccessTools.TypeByName("SaveManager");
-                if (saveMgrType == null) return;
-                UnityEngine.Object instance = UnityEngine.Object.FindObjectOfType(saveMgrType);
-                if (instance != null) { Traverse.Create(instance).Method("loadGame", new object[] { slot }).GetValue(); return; }
-                MethodInfo method = AccessTools.Method(saveMgrType, "loadGame");
-                if (method != null) method.Invoke(null, new object[] { slot });
-            } catch (Exception e) { Debug.LogError("[Sync] CallGameLoad Error: " + e.Message); }
         }
 
         private byte[] Compress(byte[] data) {
