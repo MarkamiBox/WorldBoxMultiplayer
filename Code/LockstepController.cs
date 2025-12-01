@@ -29,6 +29,7 @@ namespace WorldBoxMultiplayer
         public void AddPendingAction(int tick, string action) {
             if (!PendingActions.ContainsKey(tick)) PendingActions[tick] = new List<string>();
             PendingActions[tick].Add(action);
+            Debug.Log($"[Lockstep] Added Action for Tick {tick}: {action}");
         }
         public void SetServerTick(int tick) { _serverTickLimit = tick; }
         

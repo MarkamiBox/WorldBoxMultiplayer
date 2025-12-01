@@ -85,7 +85,15 @@ namespace WorldBoxMultiplayer
         private void CheckLaws() { if(World.world?.world_laws?.dict!=null) foreach(var kvp in World.world.world_laws.dict) { if(!_lastLawsState.ContainsKey(kvp.Key) || _lastLawsState[kvp.Key]!=kvp.Value.boolVal) { _lastLawsState[kvp.Key]=kvp.Value.boolVal; SendLawToggle(kvp.Key, kvp.Value.boolVal); } } }
 
         public void SendRaw(string message) { try { byte[] msg = Encoding.UTF8.GetBytes(message); _stream.Write(msg, 0, msg.Length); } catch {} }
-        public void SendAction(string d) { if (IsMultiplayerReady) SendRaw($"G|{LockstepController.Instance.CurrentTick+2}|{d}\n"); }
+        public void SendAction(string d) { 
+            if (IsMultiplayerReady) {
+                int targetTick = LockstepController.Instance.CurrentTick + 2;
+                string packet = $"G|{targetTick}|{d}\n";
+                SendRaw(packet);
+                // CRITICAL FIX: Execute locally too!
+                LockstepController.Instance.AddPendingAction(targetTick, d);
+            } 
+        }
         public void SendNameChange(string t, long id, string n) { if (IsMultiplayerReady) SendRaw($"N|{t}|{id}|{Convert.ToBase64String(Encoding.UTF8.GetBytes(n))}\n"); }
         public void SendKingdomCustomization(long id, int c, int b) { if (IsMultiplayerReady) SendRaw($"K|{id}|{c}|{b}\n"); }
         public void SendEraChange(string id) { if (IsMultiplayerReady) SendRaw($"A|{id}\n"); }

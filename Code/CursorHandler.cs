@@ -30,7 +30,7 @@ namespace WorldBoxMultiplayer
             _cursorRenderer.sortingLayerName = "EffectsTop"; 
             _cursorRenderer.sortingOrder = 9999;
             
-            _remoteCursorObj.transform.localScale = new Vector3(1.5f, 1.5f, 1f);
+            _remoteCursorObj.transform.localScale = new Vector3(3f, 3f, 1f);
             _remoteCursorObj.SetActive(false);
         }
 
@@ -100,12 +100,12 @@ namespace WorldBoxMultiplayer
             else {
                 // Fallback: Create a simple white square
                 if (_cursorRenderer.sprite == null) {
-                    Texture2D tex = new Texture2D(32, 32);
-                    Color[] colors = new Color[32 * 32];
+                    Texture2D tex = new Texture2D(64, 64);
+                    Color[] colors = new Color[64 * 64];
                     for (int i = 0; i < colors.Length; i++) colors[i] = Color.white;
                     tex.SetPixels(colors);
                     tex.Apply();
-                    _cursorRenderer.sprite = Sprite.Create(tex, new Rect(0, 0, 32, 32), new Vector2(0.5f, 0.5f));
+                    _cursorRenderer.sprite = Sprite.Create(tex, new Rect(0, 0, 64, 64), new Vector2(0.5f, 0.5f));
                     _cursorRenderer.color = Color.magenta; // Make it visible
                 }
             }
