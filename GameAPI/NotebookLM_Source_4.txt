@@ -1,0 +1,6800 @@
+=== START OF SOURCE 4 ===
+
+
+
+// --- Start of File: WorldLaws.cs ---
+using System;
+using System.Collections.Generic;
+
+[Serializable]
+public class WorldLaws
+{
+	public List<PlayerOptionData> list;
+
+	[NonSerialized]
+	public Dictionary<string, PlayerOptionData> dict;
+
+	public PlayerOptionData add(PlayerOptionData pData)
+	{
+		foreach (PlayerOptionData item in list)
+		{
+			if (string.Equals(pData.name, item.name))
+			{
+				dict.TryAdd(item.name, item);
+				item.on_switch = pData.on_switch;
+				return item;
+			}
+		}
+		list.Add(pData);
+		dict.Add(pData.name, pData);
+		return pData;
+	}
+
+	public void check()
+	{
+		init();
+	}
+
+	public void updateCaches()
+	{
+		foreach (WorldLawAsset item in AssetManager.world_laws_library.list)
+		{
+			item.updateCachedEnabled(this);
+		}
+	}
+
+	public void init(bool pUpdateCaches = true)
+	{
+		if (list == null)
+		{
+			list = new List<PlayerOptionData>();
+		}
+		if (dict == null)
+		{
+			dict = new Dictionary<string, PlayerOptionData>();
+		}
+		foreach (WorldLawAsset item in AssetManager.world_laws_library.list)
+		{
+			add(new PlayerOptionData(item.id)
+			{
+				boolVal = item.default_state,
+				on_switch = item.on_state_change
+			});
+		}
+		foreach (WorldAgeAsset item2 in AssetManager.era_library.list)
+		{
+			add(new PlayerOptionData(item2.id)
+			{
+				boolVal = true
+			});
+		}
+		if (pUpdateCaches)
+		{
+			updateCaches();
+		}
+		PowerButton.checkActorSpawnButtons();
+	}
+
+	public bool isAgeEnabled(string pID)
+	{
+		return dict[pID].boolVal;
+	}
+
+	public void setAgeEnabled(string pID, bool pValue)
+	{
+		dict[pID].boolVal = pValue;
+	}
+
+	public bool isEnabled(string pId)
+	{
+		if (!dict.TryGetValue(pId, out var value))
+		{
+			return false;
+		}
+		return value.boolVal;
+	}
+
+	public void enable(string pID)
+	{
+		if (dict.TryGetValue(pID, out var value))
+		{
+			value.boolVal = true;
+			updateCaches();
+		}
+	}
+}
+// --- End of File: WorldLaws.cs ---
+
+
+
+// --- Start of File: WorldLawsCursedStar.cs ---
+using UnityEngine;
+using UnityEngine.UI;
+
+public class WorldLawsCursedStar : MonoBehaviour
+{
+	[SerializeField]
+	private Image _empty_star;
+
+	[SerializeField]
+	private Image _filled_star;
+
+	[SerializeField]
+	private Sprite _filled_star_sprite;
+
+	[SerializeField]
+	private Sprite _egg_sprite;
+
+	private bool _filled;
+
+	public void setStarsTransparency(float pValue)
+	{
+		//IL_000e: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0013: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0022: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0036: Unknown result type (might be due to invalid IL or missing references)
+		float a = 1f - pValue;
+		Color color = ((Graphic)_empty_star).color;
+		color.a = a;
+		((Graphic)_empty_star).color = color;
+		color.a = pValue;
+		((Graphic)_filled_star).color = color;
+	}
+
+	public void setColorMultiplyAlphaBoth(Color pColor, float pValue)
+	{
+		//IL_0017: Unknown result type (might be due to invalid IL or missing references)
+		//IL_002e: Unknown result type (might be due to invalid IL or missing references)
+		//IL_003c: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0053: Unknown result type (might be due to invalid IL or missing references)
+		if (pValue < 0f)
+		{
+			pValue = 0f;
+		}
+		pColor.a = ((Graphic)_empty_star).color.a * pValue;
+		((Graphic)_empty_star).color = pColor;
+		pColor.a = ((Graphic)_filled_star).color.a * pValue;
+		((Graphic)_filled_star).color = pColor;
+	}
+
+	public void toggleEgg(bool pState)
+	{
+		if (pState)
+		{
+			_filled_star.sprite = _egg_sprite;
+		}
+		else
+		{
+			_filled_star.sprite = _filled_star_sprite;
+		}
+	}
+
+	public void toggleFilled(bool pState)
+	{
+		_filled = pState;
+	}
+
+	public bool isFilled()
+	{
+		return _filled;
+	}
+}
+// --- End of File: WorldLawsCursedStar.cs ---
+
+
+
+// --- Start of File: WorldLawsCursedStars.cs ---
+using System.Collections.Generic;
+using UnityEngine;
+
+public class WorldLawsCursedStars : MonoBehaviour
+{
+	private const int STARS_COUNT = 88;
+
+	private const float ATTRACTION_SPEED_MIN = 0.05f;
+
+	private const float ATTRACTION_SPEED_MAX = 0.3f;
+
+	private const float ROTATION_SPEED_MIN = 0.05f;
+
+	private const float ROTATION_SPEED_MAX = 0.5f;
+
+	private const float RADIUS_MULTIPLIER = 1.25f;
+
+	private const float MOUSE_AVOIDANCE_RADIUS = 40f;
+
+	private const float MOUSE_AVOIDANCE_POWER = 15f;
+
+	private const float ALPHA_FIX = 0.1f;
+
+	private const float ALPHA_START = 8.4f;
+
+	private static readonly Color OUTER_COLOR = Toolbox.makeColor("#FFAA00");
+
+	private static readonly Color CENTER_COLOR = Toolbox.makeColor("#8B00FF");
+
+	private float _attraction_speed;
+
+	private float _rotation_speed;
+
+	[SerializeField]
+	private RectTransform _stars_parent;
+
+	[SerializeField]
+	private WorldLawsCursedStar _star_prefab;
+
+	private float _angle;
+
+	private Vector3 _center;
+
+	private readonly List<WorldLawsCursedStar> _stars = new List<WorldLawsCursedStar>();
+
+	private readonly List<float> _offset_indexes = new List<float>();
+
+	private void Awake()
+	{
+		//IL_0007: Unknown result type (might be due to invalid IL or missing references)
+		//IL_000c: Unknown result type (might be due to invalid IL or missing references)
+		_center = ((Transform)_stars_parent).localPosition;
+		for (int i = 0; i < 88; i++)
+		{
+			WorldLawsCursedStar item = Object.Instantiate<WorldLawsCursedStar>(_star_prefab, (Transform)(object)_stars_parent);
+			_stars.Add(item);
+			_offset_indexes.Add(i);
+		}
+		updateStarsPositions();
+	}
+
+	private void OnEnable()
+	{
+		float curseProgressRatio = CursedSacrifice.getCurseProgressRatio();
+		_rotation_speed = Mathf.Lerp(0.05f, 0.5f, curseProgressRatio);
+		_attraction_speed = Mathf.Lerp(0.05f, 0.3f, curseProgressRatio);
+	}
+
+	private void Update()
+	{
+		updateStarsPositions();
+	}
+
+	private void updateStarsPositions()
+	{
+		//IL_00f5: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00fa: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0133: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0165: Unknown result type (might be due to invalid IL or missing references)
+		if (_stars.Count == 0)
+		{
+			return;
+		}
+		float curseProgressRatio = CursedSacrifice.getCurseProgressRatio();
+		_angle += _rotation_speed * Time.deltaTime;
+		for (int i = 0; i < _stars.Count; i++)
+		{
+			WorldLawsCursedStar worldLawsCursedStar = _stars[i];
+			Transform transform = ((Component)worldLawsCursedStar).transform;
+			if (_offset_indexes[i] <= 0f)
+			{
+				_offset_indexes[i] += 87f;
+				worldLawsCursedStar.toggleEgg(CursedSacrifice.isLatestWasEgg());
+				worldLawsCursedStar.toggleFilled(Randy.randomChance(curseProgressRatio));
+			}
+			else
+			{
+				_offset_indexes[i] -= _attraction_speed;
+			}
+			if (worldLawsCursedStar.isFilled())
+			{
+				worldLawsCursedStar.setStarsTransparency(1f);
+			}
+			else
+			{
+				worldLawsCursedStar.setStarsTransparency(0f);
+			}
+			float num = _offset_indexes[i];
+			float num2 = (float)i + _angle;
+			Vector3 center = _center;
+			center.x += Mathf.Cos(num2) * num * 1.25f;
+			center.y += Mathf.Sin(num2) * num * 1.25f;
+			transform.localPosition = center;
+			mouseAvoidance(transform, num);
+			float num3 = normalizedDistanceFromCenter(num);
+			float num4 = Mathf.Lerp(0.5f, 1f, num3);
+			transform.localScale = new Vector3(num4, num4);
+			colorize(worldLawsCursedStar, num);
+		}
+	}
+
+	private void mouseAvoidance(Transform pTransform, float pIndex)
+	{
+		//IL_0006: Unknown result type (might be due to invalid IL or missing references)
+		//IL_000b: Unknown result type (might be due to invalid IL or missing references)
+		//IL_001a: Unknown result type (might be due to invalid IL or missing references)
+		//IL_001f: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0024: Unknown result type (might be due to invalid IL or missing references)
+		//IL_004c: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0051: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0052: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0057: Unknown result type (might be due to invalid IL or missing references)
+		//IL_005c: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0060: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0065: Unknown result type (might be due to invalid IL or missing references)
+		//IL_007c: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0082: Unknown result type (might be due to invalid IL or missing references)
+		//IL_008b: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0093: Unknown result type (might be due to invalid IL or missing references)
+		//IL_009a: Unknown result type (might be due to invalid IL or missing references)
+		//IL_009f: Unknown result type (might be due to invalid IL or missing references)
+		Vector2 val = default(Vector2);
+		RectTransformUtility.ScreenPointToLocalPointInRectangle(_stars_parent, Vector2.op_Implicit(Input.mousePosition), (Camera)null, ref val);
+		float num = Mathf.Min(Vector2.Distance(Vector2.op_Implicit(pTransform.localPosition), val), 40f);
+		float num2 = 1f - num / 40f;
+		float num3 = 15f * num2;
+		Vector3 val2 = pTransform.localPosition - Vector2.op_Implicit(val);
+		Vector3 normalized = ((Vector3)(ref val2)).normalized;
+		float num4 = Mathf.Max(normalizedDistanceFromCenter(pIndex), 0.2f);
+		pTransform.localPosition += new Vector3(num3 * normalized.x, num3 * normalized.y) * num4;
+	}
+
+	private void colorize(WorldLawsCursedStar pStar, float pIndex)
+	{
+		//IL_0008: Unknown result type (might be due to invalid IL or missing references)
+		//IL_000d: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0019: Unknown result type (might be due to invalid IL or missing references)
+		//IL_001e: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0034: Unknown result type (might be due to invalid IL or missing references)
+		float num = normalizedDistanceFromCenter(pIndex);
+		Color pColor = Toolbox.blendColor(OUTER_COLOR, CENTER_COLOR, num * 1.35f);
+		float pValue = 8.4f - (pIndex + 1f) / 8.8f;
+		pStar.setColorMultiplyAlphaBoth(pColor, pValue);
+	}
+
+	private float normalizedDistanceFromCenter(float pIndex)
+	{
+		return (pIndex + 1f) / 88f;
+	}
+}
+// --- End of File: WorldLawsCursedStars.cs ---
+
+
+
+// --- Start of File: WorldLawsEditor.cs ---
+using System.Collections.Generic;
+using UnityEngine;
+
+public class WorldLawsEditor : MonoBehaviour
+{
+	[SerializeField]
+	private WorldLawElement _element_prefab;
+
+	[SerializeField]
+	private WorldLawCategory _category_prefab;
+
+	[SerializeField]
+	private Transform _categories_parent;
+
+	private Dictionary<string, WorldLawCategory> _categories_dict = new Dictionary<string, WorldLawCategory>();
+
+	private void Awake()
+	{
+		create();
+	}
+
+	private void OnEnable()
+	{
+		updateButtons();
+	}
+
+	private void create()
+	{
+		createCategories();
+		createElements();
+	}
+
+	private void createCategories()
+	{
+		foreach (WorldLawGroupAsset item in AssetManager.world_law_groups.list)
+		{
+			Transform categories_parent = _categories_parent;
+			WorldLawCategory worldLawCategory = Object.Instantiate<WorldLawCategory>(_category_prefab, categories_parent);
+			_categories_dict.Add(item.id, worldLawCategory);
+			worldLawCategory.init(item);
+		}
+	}
+
+	private void createElements()
+	{
+		foreach (WorldLawAsset item in AssetManager.world_laws_library.list)
+		{
+			if (!string.IsNullOrEmpty(item.group_id))
+			{
+				WorldLawCategory worldLawCategory = _categories_dict[item.group_id];
+				WorldLawElement worldLawElement = Object.Instantiate<WorldLawElement>(_element_prefab, ((Component)worldLawCategory.grid).transform);
+				((Object)worldLawElement).name = item.id;
+				worldLawElement.init(item);
+				worldLawCategory.addElement(worldLawElement);
+			}
+		}
+	}
+
+	private void updateButtons()
+	{
+		foreach (WorldLawCategory value in _categories_dict.Values)
+		{
+			value.updateButtons();
+		}
+	}
+
+	public void resetToDefault()
+	{
+		foreach (WorldLawAsset item in AssetManager.world_laws_library.list)
+		{
+			if (item.can_turn_off)
+			{
+				PlayerOptionData option = item.getOption();
+				bool boolVal = option.boolVal;
+				option.boolVal = item.default_state;
+				if (option.boolVal && !boolVal)
+				{
+					item.on_state_enabled?.Invoke(option);
+				}
+				item.on_state_change?.Invoke(option);
+			}
+		}
+		World.world.world_laws.updateCaches();
+		updateButtons();
+	}
+}
+// --- End of File: WorldLawsEditor.cs ---
+
+
+
+// --- Start of File: WorldLawsTextInsult.cs ---
+using DG.Tweening;
+using DG.Tweening.Core;
+using DG.Tweening.Plugins.Options;
+using UnityEngine;
+using UnityEngine.UI;
+
+public class WorldLawsTextInsult : MonoBehaviour
+{
+	[SerializeField]
+	private Transform _follow_object;
+
+	[SerializeField]
+	private RectTransform _size_parent;
+
+	[SerializeField]
+	private Text _text;
+
+	private static float _global_wait_timeout;
+
+	private const float RARE_INSULT_CHANCE = 0.005f;
+
+	private float _wait_time;
+
+	private Tweener _text_tweener;
+
+	private string[] _insults_rare = new string[14]
+	{
+		"UPDATE?", "WHEN", "GEB", "BRE", "REBR", "MODERN?", "HELP", "CAKE", "BRURSE", "MAXIM",
+		"MASTEF", "HUGO", "NIKON", "JECO"
+	};
+
+	public static void removeInsultTimeout()
+	{
+		_global_wait_timeout = 0f;
+	}
+
+	public void Update()
+	{
+		if (shouldInsultNow())
+		{
+			if (_wait_time > 0f)
+			{
+				_wait_time -= Time.deltaTime;
+			}
+			else if (_global_wait_timeout > 0f && !isTweening())
+			{
+				_global_wait_timeout -= Time.deltaTime;
+			}
+			else if (!isTweening())
+			{
+				startNewTween();
+			}
+		}
+	}
+
+	private void startNewTween()
+	{
+		//IL_006e: Unknown result type (might be due to invalid IL or missing references)
+		//IL_006f: Unknown result type (might be due to invalid IL or missing references)
+		//IL_009b: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00b3: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00b8: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00e0: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00fe: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0103: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0108: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0115: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0133: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0149: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0153: Expected O, but got Unknown
+		killTweens();
+		if (WorldLawLibrary.world_law_cursed_world.isEnabled())
+		{
+			_global_wait_timeout = 0.6f + Randy.randomFloat(0f, 2f);
+		}
+		else
+		{
+			_global_wait_timeout = 2f + Randy.randomFloat(0f, 3f);
+		}
+		Vector3 val = default(Vector3);
+		((Vector3)(ref val))._002Ector(0f, 0f, Randy.randomFloat(-30f, 30f));
+		((Transform)_size_parent).localRotation = Quaternion.Euler(val);
+		_text.text = getInsultText();
+		((Component)_text).transform.position = _follow_object.position + new Vector3(0f, (float)Randy.randomInt(8, 12), 0f);
+		_text.fontSize = Randy.randomInt(7, 9);
+		Vector3 val2 = ((Component)_text).transform.position + new Vector3(0f, Randy.randomFloat(30f, 60f), 0f);
+		_text_tweener = (Tweener)(object)TweenSettingsExtensions.SetEase<TweenerCore<Vector3, Vector3, VectorOptions>>(ShortcutExtensions.DOMove(((Component)_text).transform, val2, 6f, false), (Ease)9);
+		((Tween)DOTweenModuleUI.DOColor(_text, Color.white, 2f)).onComplete = new TweenCallback(doTextFade);
+	}
+
+	private string getInsultText()
+	{
+		if (Randy.randomChance(0.005f))
+		{
+			return _insults_rare.GetRandom();
+		}
+		return InsultStringGenerator.getRandomText();
+	}
+
+	private void doTextFade()
+	{
+		//IL_001c: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0026: Expected O, but got Unknown
+		((Tween)DOTweenModuleUI.DOFade(_text, 0f, 2f)).onComplete = new TweenCallback(doWait);
+	}
+
+	private bool shouldInsultNow()
+	{
+		if (!CursedSacrifice.isWorldReadyForCURSE())
+		{
+			return WorldLawLibrary.world_law_cursed_world.isEnabled();
+		}
+		return true;
+	}
+
+	private bool isTweening()
+	{
+		return TweenExtensions.IsActive((Tween)(object)_text_tweener);
+	}
+
+	private void OnEnable()
+	{
+		doWait();
+	}
+
+	private void doWait()
+	{
+		//IL_0021: Unknown result type (might be due to invalid IL or missing references)
+		killTweens();
+		_wait_time = Randy.randomFloat(0f, 7f);
+		((Graphic)_text).color = Toolbox.color_white_transparent;
+	}
+
+	private void killTweens()
+	{
+		Tweener text_tweener = _text_tweener;
+		if (text_tweener != null)
+		{
+			TweenExtensions.Kill((Tween)(object)text_tweener, false);
+		}
+		ShortcutExtensions.DOKill((Component)(object)_text, false);
+	}
+}
+// --- End of File: WorldLawsTextInsult.cs ---
+
+
+
+// --- Start of File: WorldLawsWindow.cs ---
+using UnityEngine;
+using UnityEngine.Events;
+using UnityEngine.UI;
+
+public class WorldLawsWindow : TabbedWindow
+{
+	[SerializeField]
+	private WorldLawElement _cursed_world_button;
+
+	[SerializeField]
+	private GameObject _blackhole_butt;
+
+	[SerializeField]
+	private Image _center_blackhole;
+
+	[SerializeField]
+	private Transform _blackhole_container;
+
+	[SerializeField]
+	private Sprite _blackhole_normal;
+
+	[SerializeField]
+	private Sprite _blackhole_normal_eye;
+
+	[SerializeField]
+	private Sprite _blackhole_normal_eye_open;
+
+	[SerializeField]
+	private LayoutElement _background_star_mark_element;
+
+	[SerializeField]
+	private GameObject _description_forbidden_knowledge_1_before_sacrifice;
+
+	[SerializeField]
+	private GameObject _description_forbidden_knowledge_2_non_cursed;
+
+	[SerializeField]
+	private GameObject _description_forbidden_knowledge_3_cursed;
+
+	[SerializeField]
+	private GameObject _description_forbidden_knowledge_warn;
+
+	protected override void create()
+	{
+		base.create();
+		initCursedWorld();
+	}
+
+	private void initCursedWorld()
+	{
+		//IL_001d: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0027: Expected O, but got Unknown
+		_cursed_world_button.init(WorldLawLibrary.world_law_cursed_world);
+		_cursed_world_button.addListener((UnityAction)delegate
+		{
+			checkShakeAndClose();
+		});
+	}
+
+	private void checkShakeAndClose()
+	{
+		if (CursedSacrifice.justGotCursedWorld())
+		{
+			World.world.startShake(0.3f, 0.01f, 2f, pShakeX: true);
+			checkForbiddenKnowledgeElements();
+		}
+		WorldLawsTextInsult.removeInsultTimeout();
+		((IShakable)scroll_window).shake();
+	}
+
+	private void OnEnable()
+	{
+		checkForbiddenKnowledgeElements();
+	}
+
+	private void checkForbiddenKnowledgeElements()
+	{
+		//IL_00a9: Unknown result type (might be due to invalid IL or missing references)
+		bool flag = WorldLawLibrary.world_law_cursed_world.isEnabled();
+		bool flag2 = CursedSacrifice.isWorldReadyForCURSE();
+		_description_forbidden_knowledge_3_cursed.SetActive(flag);
+		if (flag)
+		{
+			_description_forbidden_knowledge_1_before_sacrifice.SetActive(false);
+			_description_forbidden_knowledge_2_non_cursed.SetActive(false);
+		}
+		else
+		{
+			_description_forbidden_knowledge_1_before_sacrifice.SetActive(!flag2);
+			_description_forbidden_knowledge_2_non_cursed.SetActive(flag2);
+		}
+		_description_forbidden_knowledge_warn.SetActive(flag2);
+		if (flag2)
+		{
+			_background_star_mark_element.minHeight = 180f;
+		}
+		else
+		{
+			_background_star_mark_element.minHeight = 205f;
+		}
+		float num = Mathf.Lerp(0.5f, 1f, CursedSacrifice.getCurseProgressRatioForBlackhole());
+		((Component)_blackhole_container).transform.localScale = new Vector3(num, num, num);
+		if (flag)
+		{
+			_center_blackhole.sprite = _blackhole_normal_eye_open;
+		}
+		else if (flag2)
+		{
+			_center_blackhole.sprite = _blackhole_normal_eye;
+		}
+		else
+		{
+			_center_blackhole.sprite = _blackhole_normal;
+		}
+		((Component)_cursed_world_button).gameObject.SetActive(flag2);
+		_blackhole_butt.SetActive(flag2);
+	}
+}
+// --- End of File: WorldLawsWindow.cs ---
+
+
+
+// --- Start of File: WorldLayer.cs ---
+public class WorldLayer : MapLayer
+{
+	public override void update(float pElapsed)
+	{
+	}
+
+	public override void draw(float pElapsed)
+	{
+		UpdateDirty(pElapsed);
+	}
+}
+// --- End of File: WorldLayer.cs ---
+
+
+
+// --- Start of File: WorldLayerEdges.cs ---
+using System.Collections.Generic;
+
+public class WorldLayerEdges : MapLayer
+{
+	private HashSet<MapChunk> _dirty_chunks = new HashSet<MapChunk>();
+
+	private HashSet<MapChunk> _chunks_to_redraw = new HashSet<MapChunk>();
+
+	public override void update(float pElapsed)
+	{
+	}
+
+	public override void draw(float pElapsed)
+	{
+		UpdateDirty(pElapsed);
+	}
+
+	public void addDirtyChunk(MapChunk pChunk)
+	{
+		_dirty_chunks.Add(pChunk);
+	}
+
+	internal override void clear()
+	{
+		_dirty_chunks.Clear();
+		base.clear();
+	}
+
+	public void redraw()
+	{
+		//IL_0098: Unknown result type (might be due to invalid IL or missing references)
+		//IL_009d: Unknown result type (might be due to invalid IL or missing references)
+		_chunks_to_redraw.UnionWith(_dirty_chunks);
+		foreach (MapChunk dirty_chunk in _dirty_chunks)
+		{
+			_chunks_to_redraw.UnionWith(dirty_chunk.neighbours_all);
+		}
+		_dirty_chunks.Clear();
+		foreach (MapChunk item in _chunks_to_redraw)
+		{
+			WorldTile[] tiles = item.tiles;
+			int num = tiles.Length;
+			for (int i = 0; i < num; i++)
+			{
+				WorldTile worldTile = tiles[i];
+				pixels[worldTile.data.tile_id] = Toolbox.clear;
+				redrawTile(worldTile);
+			}
+		}
+		_chunks_to_redraw.Clear();
+		updatePixels();
+	}
+
+	private void redrawTile(WorldTile pTile)
+	{
+		//IL_0168: Unknown result type (might be due to invalid IL or missing references)
+		//IL_016d: Unknown result type (might be due to invalid IL or missing references)
+		//IL_006b: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0070: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00a1: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00a6: Unknown result type (might be due to invalid IL or missing references)
+		//IL_01b6: Unknown result type (might be due to invalid IL or missing references)
+		//IL_01bb: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00d7: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00dc: Unknown result type (might be due to invalid IL or missing references)
+		//IL_01fa: Unknown result type (might be due to invalid IL or missing references)
+		//IL_01ff: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0230: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0235: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0133: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0138: Unknown result type (might be due to invalid IL or missing references)
+		WorldTile tile_down = pTile.tile_down;
+		WorldTile tile_up = pTile.tile_up;
+		if (!pTile.Type.check_edge || pTile.Type.wall)
+		{
+			return;
+		}
+		if (tile_down != null && !tile_down.Type.wall)
+		{
+			if (pTile.Type.edge_hills && !tile_down.Type.rocks)
+			{
+				pixels[pTile.data.tile_id] = TileTypeBase.edge_color_hills;
+				return;
+			}
+			if (pTile.Type.edge_mountains && tile_down.Type.edge_hills)
+			{
+				pixels[pTile.data.tile_id] = TileTypeBase.edge_color_mountain;
+				return;
+			}
+			if (pTile.Type.rocks && !tile_down.Type.rocks)
+			{
+				pixels[pTile.data.tile_id] = TileTypeBase.edge_color_mountain;
+				return;
+			}
+			if (!tile_down.Type.ocean && !pTile.Type.ocean && tile_down.Type != pTile.Type && tile_down.Type.height_min < pTile.Type.height_min)
+			{
+				pixels[pTile.data.tile_id] = Toolbox.edge_alpha;
+				return;
+			}
+		}
+		if (tile_up == null)
+		{
+			return;
+		}
+		if (tile_up.Type.wall)
+		{
+			pixels[pTile.data.tile_id] = tile_up.Type.edge_color;
+		}
+		else if (pTile.Type.ocean && tile_up.Type.ocean && tile_up.Type.height_min > pTile.Type.height_min)
+		{
+			pixels[pTile.data.tile_id] = Toolbox.edge_alpha;
+		}
+		else if (tile_up.Type.ground && !tile_up.Type.can_be_filled_with_ocean)
+		{
+			if (pTile.Type.layer_type == TileLayerType.Ocean)
+			{
+				pixels[pTile.data.tile_id] = TileTypeBase.edge_color_ocean;
+			}
+			else if (pTile.Type.can_be_filled_with_ocean && !pTile.Type.explodable)
+			{
+				pixels[pTile.data.tile_id] = TileTypeBase.edge_color_no_ocean;
+			}
+		}
+	}
+}
+// --- End of File: WorldLayerEdges.cs ---
+
+
+
+// --- Start of File: WorldListByTag.cs ---
+using UnityEngine;
+
+public class WorldListByTag : MonoBehaviour
+{
+	public MapTagButton mapTagButtonPrefab;
+
+	public Transform transformContent;
+
+	public Transform tagContent;
+
+	public Transform listContent;
+}
+// --- End of File: WorldListByTag.cs ---
+
+
+
+// --- Start of File: WorldListWindow.cs ---
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+
+public class WorldListWindow : MonoBehaviour
+{
+	private static WorldListWindow instance;
+
+	public WorldElement worldElementPrefab;
+
+	public GameObject notFound;
+
+	public ScrollWindow windowWorldList;
+
+	private List<WorldElement> elements = new List<WorldElement>();
+
+	public Transform transformContent;
+
+	public Transform listContent;
+
+	public Transform tagContent;
+
+	public GameObject loadingSpinner;
+
+	public GameObject textStatusBG;
+
+	public Text textStatusMessage;
+
+	public LocalizedText windowTitle;
+
+	public static List<MapTagType> tagsActive = new List<MapTagType>();
+
+	public static string authorId;
+
+	public GameObject sectionTextBG;
+
+	public GameObject profileImage;
+
+	public GameObject filterButton;
+
+	public Text sectionText;
+
+	public Image filterTag1;
+
+	public Image filterTag2;
+}
+// --- End of File: WorldListWindow.cs ---
+
+
+
+// --- Start of File: WorldLoader.cs ---
+using System.Collections.Generic;
+using RSG;
+using UnityEngine;
+
+internal class WorldLoader : MonoBehaviour
+{
+	public static WorldLoader instance;
+
+	public static Dictionary<string, Map> mapCache = new Dictionary<string, Map>();
+
+	public static Dictionary<string, Promise<Dictionary<string, Map>>> listCache = new Dictionary<string, Promise<Dictionary<string, Map>>>();
+}
+// --- End of File: WorldLoader.cs ---
+
+
+
+// --- Start of File: WorldLog.cs ---
+using UnityEngine;
+
+public class WorldLog
+{
+	public static WorldLog instance;
+
+	public const int WORLDLOG_LIMIT = 2000;
+
+	public WorldLog()
+	{
+		instance = this;
+	}
+
+	public static void logNewKing(Kingdom pKingdom)
+	{
+		//IL_0036: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0047: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0058: Unknown result type (might be due to invalid IL or missing references)
+		new WorldLogMessage(WorldLogLibrary.king_new, pKingdom.name, pKingdom.king.getName())
+		{
+			kingdom = pKingdom,
+			unit = pKingdom.king,
+			location = pKingdom.king.current_position,
+			color_special1 = pKingdom.getColor().getColorText(),
+			color_special2 = pKingdom.getColor().getColorText()
+		}.add();
+	}
+
+	public static void logRoyalClanNew(Kingdom pKingdom, Clan pClan)
+	{
+		//IL_003b: Unknown result type (might be due to invalid IL or missing references)
+		//IL_004c: Unknown result type (might be due to invalid IL or missing references)
+		//IL_005d: Unknown result type (might be due to invalid IL or missing references)
+		//IL_006e: Unknown result type (might be due to invalid IL or missing references)
+		new WorldLogMessage(WorldLogLibrary.kingdom_royal_clan_new, pKingdom.name, pClan.name, pKingdom.king.name)
+		{
+			kingdom = pKingdom,
+			unit = pKingdom.king,
+			location = pKingdom.king.current_position,
+			color_special1 = pKingdom.getColor().getColorText(),
+			color_special2 = pClan.getColor().getColorText(),
+			color_special3 = pKingdom.getColor().getColorText()
+		}.add();
+	}
+
+	public static void logRoyalClanChanged(Kingdom pKingdom, Clan pOldClan, Clan pNewClan)
+	{
+		//IL_0036: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0047: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0058: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0069: Unknown result type (might be due to invalid IL or missing references)
+		new WorldLogMessage(WorldLogLibrary.kingdom_royal_clan_changed, pKingdom.name, pOldClan.name, pNewClan.name)
+		{
+			kingdom = pKingdom,
+			unit = pKingdom.king,
+			location = pKingdom.king.current_position,
+			color_special1 = pKingdom.getColor().getColorText(),
+			color_special2 = pOldClan.getColor().getColorText(),
+			color_special3 = pNewClan.getColor().getColorText()
+		}.add();
+	}
+
+	public static void logRoyalClanNoMore(Kingdom pKingdom, Clan pClan)
+	{
+		//IL_003f: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0050: Unknown result type (might be due to invalid IL or missing references)
+		//IL_002e: Unknown result type (might be due to invalid IL or missing references)
+		WorldLogMessage worldLogMessage = new WorldLogMessage(WorldLogLibrary.kingdom_royal_clan_dead, pKingdom.name, pClan.name);
+		worldLogMessage.kingdom = pKingdom;
+		if (pKingdom.hasCapital())
+		{
+			worldLogMessage.location = pKingdom.capital.last_city_center;
+		}
+		worldLogMessage.color_special1 = pKingdom.getColor().getColorText();
+		worldLogMessage.color_special2 = pClan.getColor().getColorText();
+		worldLogMessage.add();
+	}
+
+	public static void logKingFledCity(Kingdom pKingdom, Actor pActor)
+	{
+		//IL_0031: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0042: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0053: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0064: Unknown result type (might be due to invalid IL or missing references)
+		new WorldLogMessage(WorldLogLibrary.king_fled_city, pKingdom.name, pActor.getName(), pActor.city.name)
+		{
+			kingdom = pKingdom,
+			unit = pActor,
+			location = pActor.current_position,
+			color_special1 = pKingdom.getColor().getColorText(),
+			color_special2 = pKingdom.getColor().getColorText(),
+			color_special3 = pKingdom.getColor().getColorText()
+		}.add();
+	}
+
+	public static void logKingFledCapital(Kingdom pKingdom, Actor pActor)
+	{
+		//IL_0031: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0042: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0053: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0064: Unknown result type (might be due to invalid IL or missing references)
+		new WorldLogMessage(WorldLogLibrary.king_fled_capital, pKingdom.name, pActor.getName(), pKingdom.capital.name)
+		{
+			kingdom = pKingdom,
+			unit = pActor,
+			location = pActor.current_position,
+			color_special1 = pKingdom.getColor().getColorText(),
+			color_special2 = pKingdom.getColor().getColorText(),
+			color_special3 = pKingdom.getColor().getColorText()
+		}.add();
+	}
+
+	public static void logKingLeft(Kingdom pKingdom, Actor pActor)
+	{
+		//IL_0027: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0038: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0049: Unknown result type (might be due to invalid IL or missing references)
+		new WorldLogMessage(WorldLogLibrary.king_left, pKingdom.name, pActor.getName())
+		{
+			kingdom = pKingdom,
+			unit = pActor,
+			location = pActor.current_position,
+			color_special1 = pKingdom.getColor().getColorText(),
+			color_special2 = pKingdom.getColor().getColorText()
+		}.add();
+	}
+
+	public static void logKingDead(Kingdom pKingdom, Actor pActor)
+	{
+		//IL_0020: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0031: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0042: Unknown result type (might be due to invalid IL or missing references)
+		new WorldLogMessage(WorldLogLibrary.king_dead, pKingdom.name, pActor.getName())
+		{
+			kingdom = pKingdom,
+			location = pActor.current_position,
+			color_special1 = pKingdom.getColor().getColorText(),
+			color_special2 = pKingdom.getColor().getColorText()
+		}.add();
+	}
+
+	public static void logKingMurder(Kingdom pKingdom, Actor pActor, Actor pAttacker)
+	{
+		//IL_0031: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0042: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0072: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0095: Unknown result type (might be due to invalid IL or missing references)
+		WorldLogMessage worldLogMessage = new WorldLogMessage(WorldLogLibrary.king_killed, pKingdom.name, pActor.getName(), pAttacker?.getName());
+		worldLogMessage.kingdom = pKingdom;
+		worldLogMessage.color_special1 = pKingdom.getColor().getColorText();
+		worldLogMessage.color_special2 = pKingdom.getColor().getColorText();
+		if (pAttacker?.kingdom?.getColor() != null)
+		{
+			worldLogMessage.color_special3 = pAttacker.kingdom.getColor().getColorText();
+		}
+		if (pAttacker != null && pAttacker.asset.can_be_inspected)
+		{
+			worldLogMessage.unit = pAttacker;
+		}
+		worldLogMessage.location = pActor.current_position;
+		worldLogMessage.add();
+	}
+
+	public static void logFavDead(Actor pActor)
+	{
+		//IL_0015: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0051: Unknown result type (might be due to invalid IL or missing references)
+		WorldLogMessage worldLogMessage = new WorldLogMessage(WorldLogLibrary.favorite_dead, pActor.getName());
+		worldLogMessage.location = pActor.current_position;
+		if (pActor?.kingdom?.getColor() != null)
+		{
+			worldLogMessage.kingdom = pActor.kingdom;
+			worldLogMessage.color_special1 = pActor.kingdom.getColor().getColorText();
+		}
+		worldLogMessage.add();
+	}
+
+	public static void logFavMurder(Actor pActor, Actor pAttacker)
+	{
+		//IL_0050: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0080: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00a3: Unknown result type (might be due to invalid IL or missing references)
+		WorldLogMessage worldLogMessage = new WorldLogMessage(WorldLogLibrary.favorite_killed, pActor.getName(), pAttacker?.getName());
+		if (pActor?.kingdom?.getColor() != null)
+		{
+			worldLogMessage.kingdom = pActor.kingdom;
+			worldLogMessage.color_special1 = pActor.kingdom.getColor().getColorText();
+		}
+		if (pAttacker?.kingdom?.getColor() != null)
+		{
+			worldLogMessage.color_special2 = pAttacker.kingdom.getColor().getColorText();
+		}
+		if (pAttacker != null && pAttacker.asset.can_be_inspected)
+		{
+			worldLogMessage.unit = pAttacker;
+		}
+		worldLogMessage.location = pActor.current_position;
+		worldLogMessage.add();
+	}
+
+	public static void logNewCity(City pCity)
+	{
+		//IL_0020: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0036: Unknown result type (might be due to invalid IL or missing references)
+		new WorldLogMessage(WorldLogLibrary.city_new, pCity.name)
+		{
+			kingdom = pCity.kingdom,
+			location = pCity.last_city_center,
+			color_special1 = pCity.kingdom.getColor().getColorText()
+		}.add();
+	}
+
+	public static void logCityRevolt(City pCity)
+	{
+		//IL_002a: Unknown result type (might be due to invalid IL or missing references)
+		new WorldLogMessage(WorldLogLibrary.log_city_revolted, pCity.name, pCity.kingdom.name)
+		{
+			kingdom = pCity.kingdom,
+			location = pCity.last_city_center
+		}.add();
+	}
+
+	public static void logWarEnded(War pWar)
+	{
+		//IL_001e: Unknown result type (might be due to invalid IL or missing references)
+		new WorldLogMessage(WorldLogLibrary.diplomacy_war_ended, pWar.data.name)
+		{
+			color_special1 = pWar.getColor().getColorText()
+		}.add();
+	}
+
+	public static void logNewWar(Kingdom pKingdom1, Kingdom pKingdom2)
+	{
+		//IL_0019: Unknown result type (might be due to invalid IL or missing references)
+		//IL_001e: Unknown result type (might be due to invalid IL or missing references)
+		//IL_002f: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0040: Unknown result type (might be due to invalid IL or missing references)
+		new WorldLogMessage(WorldLogLibrary.diplomacy_war_started, pKingdom1.name, pKingdom2.name)
+		{
+			location = Vector2.op_Implicit(pKingdom1.location),
+			color_special1 = pKingdom1.getColor().getColorText(),
+			color_special2 = pKingdom2.getColor().getColorText()
+		}.add();
+	}
+
+	public static void logNewTotalWar(Kingdom pKingdom)
+	{
+		//IL_0014: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0019: Unknown result type (might be due to invalid IL or missing references)
+		//IL_002a: Unknown result type (might be due to invalid IL or missing references)
+		new WorldLogMessage(WorldLogLibrary.total_war_started, pKingdom.name)
+		{
+			location = Vector2.op_Implicit(pKingdom.location),
+			color_special1 = pKingdom.getColor().getColorText()
+		}.add();
+	}
+
+	public static void logAllianceCreated(Alliance pAlliance)
+	{
+		//IL_0019: Unknown result type (might be due to invalid IL or missing references)
+		new WorldLogMessage(WorldLogLibrary.alliance_new, pAlliance.name)
+		{
+			color_special1 = pAlliance.getColor().getColorText()
+		}.add();
+	}
+
+	public static void logAllianceDisolved(Alliance pAlliance)
+	{
+		//IL_0019: Unknown result type (might be due to invalid IL or missing references)
+		new WorldLogMessage(WorldLogLibrary.alliance_dissolved, pAlliance.name)
+		{
+			color_special1 = pAlliance.getColor().getColorText()
+		}.add();
+	}
+
+	public static void logNewKingdom(Kingdom pKingdom)
+	{
+		//IL_001b: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0020: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0031: Unknown result type (might be due to invalid IL or missing references)
+		new WorldLogMessage(WorldLogLibrary.kingdom_new, pKingdom.name)
+		{
+			kingdom = pKingdom,
+			location = Vector2.op_Implicit(pKingdom.location),
+			color_special1 = pKingdom.getColor().getColorText()
+		}.add();
+	}
+
+	public static void logKingdomDestroyed(Kingdom pKingdom)
+	{
+		//IL_001b: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0020: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0031: Unknown result type (might be due to invalid IL or missing references)
+		new WorldLogMessage(WorldLogLibrary.kingdom_destroyed, pKingdom.name)
+		{
+			kingdom = pKingdom,
+			location = Vector2.op_Implicit(pKingdom.location),
+			color_special1 = pKingdom.getColor().getColorText()
+		}.add();
+	}
+
+	public static void logCityDestroyed(City pCity)
+	{
+		//IL_002a: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0036: Unknown result type (might be due to invalid IL or missing references)
+		new WorldLogMessage(WorldLogLibrary.city_destroyed, pCity.name)
+		{
+			kingdom = pCity.kingdom,
+			color_special1 = pCity.kingdom.getColor().getColorText(),
+			location = pCity.last_city_center
+		}.add();
+	}
+
+	public static void logDisaster(DisasterAsset pAsset, WorldTile pTile, string pName = null, City pCity = null, Actor pUnit = null)
+	{
+		//IL_0029: Unknown result type (might be due to invalid IL or missing references)
+		//IL_002e: Unknown result type (might be due to invalid IL or missing references)
+		if (!string.IsNullOrEmpty(pAsset.world_log))
+		{
+			WorldLogMessage worldLogMessage = new WorldLogMessage(AssetManager.world_log_library.get(pAsset.world_log));
+			worldLogMessage.location = Vector2.op_Implicit(pTile.posV3);
+			worldLogMessage.special1 = pName;
+			if (pCity != null)
+			{
+				worldLogMessage.special2 = pCity.name;
+			}
+			if (pUnit != null && pUnit.asset.can_be_inspected)
+			{
+				worldLogMessage.unit = pUnit;
+			}
+			worldLogMessage.add();
+		}
+	}
+
+	public static void locationJump(Vector3 pVector)
+	{
+		//IL_000a: Unknown result type (might be due to invalid IL or missing references)
+		HistoryHud.disableRaycasts();
+		World.world.locatePosition(pVector, HistoryHud.enableRaycasts, HistoryHud.enableRaycasts);
+	}
+
+	public static void locationFollow(Actor pActor)
+	{
+		if (pActor != null && pActor.isAlive())
+		{
+			HistoryHud.disableRaycasts();
+			World.world.locateAndFollow(pActor, HistoryHud.enableRaycasts, HistoryHud.enableRaycasts);
+		}
+	}
+
+	public static void logShatteredCrown(Kingdom pKingdom)
+	{
+		//IL_001b: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0020: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0031: Unknown result type (might be due to invalid IL or missing references)
+		new WorldLogMessage(WorldLogLibrary.kingdom_shattered, pKingdom.name)
+		{
+			kingdom = pKingdom,
+			location = Vector2.op_Implicit(pKingdom.location),
+			color_special1 = pKingdom.getColor().getColorText()
+		}.add();
+	}
+
+	public static void logFracturedKingdom(Kingdom pKingdom)
+	{
+		//IL_001b: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0020: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0031: Unknown result type (might be due to invalid IL or missing references)
+		new WorldLogMessage(WorldLogLibrary.kingdom_fractured, pKingdom.name)
+		{
+			kingdom = pKingdom,
+			location = Vector2.op_Implicit(pKingdom.location),
+			color_special1 = pKingdom.getColor().getColorText()
+		}.add();
+	}
+}
+// --- End of File: WorldLog.cs ---
+
+
+
+// --- Start of File: WorldLogAsset.cs ---
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+[Serializable]
+public class WorldLogAsset : Asset, IMultiLocalesAsset
+{
+	public string group;
+
+	public string locale_id;
+
+	public string path_icon;
+
+	public Color color = Toolbox.color_log_neutral;
+
+	public int random_ids;
+
+	public WorldLogTextFormatter text_replacer;
+
+	public string getLocaleID()
+	{
+		return locale_id ?? id;
+	}
+
+	public string getLocaleID(int pIndex)
+	{
+		return $"{getLocaleID()}_{pIndex}";
+	}
+
+	public IEnumerable<string> getLocaleIDs()
+	{
+		if (random_ids == 0)
+		{
+			yield return getLocaleID();
+			yield break;
+		}
+		for (int i = 1; i <= random_ids; i++)
+		{
+			yield return getLocaleID(i);
+		}
+	}
+}
+// --- End of File: WorldLogAsset.cs ---
+
+
+
+// --- Start of File: WorldLogElement.cs ---
+using UnityEngine;
+using UnityEngine.UI;
+
+public class WorldLogElement : MonoBehaviour
+{
+	public Text date;
+
+	public Text description;
+
+	public Image icon;
+
+	public GameObject locate;
+
+	public GameObject follow;
+
+	public WorldLogMessage message;
+
+	public void showMessage(WorldLogMessage pMessage)
+	{
+		message = pMessage;
+		date.text = "y:" + Date.getYear(message.timestamp) + ", m:" + Date.getMonth(message.timestamp);
+		string formatedText = message.getFormatedText(description);
+		bool active = message.hasLocation();
+		if (message.hasFollowLocation())
+		{
+			follow.SetActive(true);
+			locate.SetActive(false);
+		}
+		else
+		{
+			follow.SetActive(false);
+			locate.SetActive(active);
+		}
+		description.text = formatedText ?? "";
+		((Component)description).GetComponent<LocalizedText>().checkTextFont();
+		string path_icon = message.getAsset().path_icon;
+		if (!string.IsNullOrEmpty(path_icon))
+		{
+			Sprite sprite = SpriteTextureLoader.getSprite(path_icon);
+			icon.sprite = sprite;
+		}
+		else
+		{
+			((Component)icon).gameObject.SetActive(false);
+		}
+		((Component)description).GetComponent<LocalizedText>().checkSpecialLanguages();
+	}
+
+	public void clickLocate()
+	{
+		message.jumpToLocation();
+	}
+}
+// --- End of File: WorldLogElement.cs ---
+
+
+
+// --- Start of File: WorldLogLibrary.cs ---
+public class WorldLogLibrary : AssetLibrary<WorldLogAsset>
+{
+	public static WorldLogAsset king_new;
+
+	public static WorldLogAsset king_left;
+
+	public static WorldLogAsset king_fled_city;
+
+	public static WorldLogAsset king_fled_capital;
+
+	public static WorldLogAsset king_dead;
+
+	public static WorldLogAsset king_killed;
+
+	public static WorldLogAsset favorite_dead;
+
+	public static WorldLogAsset favorite_killed;
+
+	public static WorldLogAsset city_new;
+
+	public static WorldLogAsset log_city_revolted;
+
+	public static WorldLogAsset diplomacy_war_ended;
+
+	public static WorldLogAsset diplomacy_war_started;
+
+	public static WorldLogAsset total_war_started;
+
+	public static WorldLogAsset alliance_new;
+
+	public static WorldLogAsset alliance_dissolved;
+
+	public static WorldLogAsset kingdom_new;
+
+	public static WorldLogAsset kingdom_destroyed;
+
+	public static WorldLogAsset kingdom_shattered;
+
+	public static WorldLogAsset kingdom_fractured;
+
+	public static WorldLogAsset city_destroyed;
+
+	public static WorldLogAsset kingdom_royal_clan_new;
+
+	public static WorldLogAsset kingdom_royal_clan_changed;
+
+	public static WorldLogAsset kingdom_royal_clan_dead;
+
+	public static WorldLogAsset auto_tester;
+
+	private void updateText(ref string pText, WorldLogMessage pMessage, string pKey, int pSpecialId)
+	{
+		string special = pMessage.getSpecial(pSpecialId);
+		pText = pText.Replace(pKey, special);
+	}
+
+	public override void init()
+	{
+		//IL_002e: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0033: Unknown result type (might be due to invalid IL or missing references)
+		//IL_007c: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0081: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00d1: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00d6: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0126: Unknown result type (might be due to invalid IL or missing references)
+		//IL_012b: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0174: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0179: Unknown result type (might be due to invalid IL or missing references)
+		//IL_01c9: Unknown result type (might be due to invalid IL or missing references)
+		//IL_01ce: Unknown result type (might be due to invalid IL or missing references)
+		//IL_021e: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0223: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0273: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0278: Unknown result type (might be due to invalid IL or missing references)
+		//IL_02c1: Unknown result type (might be due to invalid IL or missing references)
+		//IL_02c6: Unknown result type (might be due to invalid IL or missing references)
+		//IL_030f: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0314: Unknown result type (might be due to invalid IL or missing references)
+		//IL_035d: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0362: Unknown result type (might be due to invalid IL or missing references)
+		//IL_03ab: Unknown result type (might be due to invalid IL or missing references)
+		//IL_03b0: Unknown result type (might be due to invalid IL or missing references)
+		//IL_03f9: Unknown result type (might be due to invalid IL or missing references)
+		//IL_03fe: Unknown result type (might be due to invalid IL or missing references)
+		//IL_043c: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0441: Unknown result type (might be due to invalid IL or missing references)
+		//IL_047f: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0484: Unknown result type (might be due to invalid IL or missing references)
+		//IL_04cd: Unknown result type (might be due to invalid IL or missing references)
+		//IL_04d2: Unknown result type (might be due to invalid IL or missing references)
+		//IL_051b: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0520: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0570: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0575: Unknown result type (might be due to invalid IL or missing references)
+		//IL_05c5: Unknown result type (might be due to invalid IL or missing references)
+		//IL_05ca: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0613: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0618: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0668: Unknown result type (might be due to invalid IL or missing references)
+		//IL_066d: Unknown result type (might be due to invalid IL or missing references)
+		//IL_06bd: Unknown result type (might be due to invalid IL or missing references)
+		//IL_06c2: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0712: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0717: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0755: Unknown result type (might be due to invalid IL or missing references)
+		//IL_075a: Unknown result type (might be due to invalid IL or missing references)
+		base.init();
+		king_new = add(new WorldLogAsset
+		{
+			id = "king_new",
+			group = "kings",
+			path_icon = "ui/Icons/iconKings",
+			color = Toolbox.color_log_neutral,
+			text_replacer = kingReplacer
+		});
+		king_left = add(new WorldLogAsset
+		{
+			id = "king_left",
+			group = "kings",
+			path_icon = "ui/Icons/actor_traits/iconStupid",
+			color = Toolbox.color_log_warning,
+			text_replacer = kingReplacer
+		});
+		king_fled_capital = add(new WorldLogAsset
+		{
+			id = "king_fled_capital",
+			group = "kings",
+			random_ids = 3,
+			path_icon = "ui/Icons/actor_traits/iconStupid",
+			color = Toolbox.color_log_warning,
+			text_replacer = kingCityReplacer
+		});
+		king_fled_city = add(new WorldLogAsset
+		{
+			id = "king_fled_city",
+			group = "kings",
+			random_ids = 3,
+			path_icon = "ui/Icons/actor_traits/iconStupid",
+			color = Toolbox.color_log_warning,
+			text_replacer = kingCityReplacer
+		});
+		king_dead = add(new WorldLogAsset
+		{
+			id = "king_dead",
+			group = "kings",
+			path_icon = "ui/Icons/iconDead",
+			color = Toolbox.color_log_warning,
+			text_replacer = kingReplacer
+		});
+		king_killed = add(new WorldLogAsset
+		{
+			id = "king_killed",
+			group = "kings",
+			random_ids = 3,
+			path_icon = "ui/Icons/actor_traits/iconKingslayer",
+			color = Toolbox.color_log_warning,
+			text_replacer = delegate(WorldLogMessage pMessage, ref string pText)
+			{
+				updateText(ref pText, pMessage, "$kingdom$", 1);
+				updateText(ref pText, pMessage, "$king$", 2);
+				updateText(ref pText, pMessage, "$name$", 3);
+			}
+		});
+		favorite_dead = add(new WorldLogAsset
+		{
+			id = "favorite_dead",
+			group = "favorite_units",
+			random_ids = 3,
+			path_icon = "ui/Icons/iconFavoriteKilled",
+			color = Toolbox.color_log_warning,
+			text_replacer = nameReplacer
+		});
+		favorite_killed = add(new WorldLogAsset
+		{
+			id = "favorite_killed",
+			group = "favorite_units",
+			random_ids = 3,
+			path_icon = "ui/Icons/iconFavoriteKilled",
+			color = Toolbox.color_log_warning,
+			text_replacer = delegate(WorldLogMessage pMessage, ref string pText)
+			{
+				updateText(ref pText, pMessage, "$name$", 1);
+				updateText(ref pText, pMessage, "$killer$", 2);
+			}
+		});
+		city_new = add(new WorldLogAsset
+		{
+			id = "city_new",
+			group = "cities",
+			path_icon = "ui/Icons/iconCitySelect",
+			color = Toolbox.color_log_neutral,
+			text_replacer = nameReplacer
+		});
+		log_city_revolted = add(new WorldLogAsset
+		{
+			id = "log_city_revolted",
+			group = "cities",
+			path_icon = "ui/Icons/iconInspiration",
+			color = Toolbox.color_log_good,
+			text_replacer = delegate(WorldLogMessage pMessage, ref string pText)
+			{
+				updateText(ref pText, pMessage, "$name$", 1);
+				updateText(ref pText, pMessage, "$kingdom$", 2);
+			}
+		});
+		diplomacy_war_ended = add(new WorldLogAsset
+		{
+			id = "diplomacy_war_ended",
+			group = "wars",
+			path_icon = "ui/Icons/actor_traits/iconPacifist",
+			color = Toolbox.color_log_good,
+			text_replacer = nameReplacer
+		});
+		diplomacy_war_started = add(new WorldLogAsset
+		{
+			id = "diplomacy_war_started",
+			group = "wars",
+			path_icon = "ui/Icons/iconWar",
+			color = Toolbox.color_log_warning,
+			text_replacer = delegate(WorldLogMessage pMessage, ref string pText)
+			{
+				updateText(ref pText, pMessage, "$kingdom1$", 1);
+				updateText(ref pText, pMessage, "$kingdom2$", 2);
+			}
+		});
+		total_war_started = add(new WorldLogAsset
+		{
+			id = "total_war_started",
+			group = "wars",
+			path_icon = "ui/Icons/iconWar",
+			color = Toolbox.color_log_warning,
+			text_replacer = delegate(WorldLogMessage pMessage, ref string pText)
+			{
+				updateText(ref pText, pMessage, "$kingdom$", 1);
+			}
+		});
+		alliance_new = add(new WorldLogAsset
+		{
+			id = "alliance_new",
+			path_icon = "ui/Icons/iconAlliance",
+			color = Toolbox.color_log_neutral,
+			text_replacer = nameReplacer
+		});
+		alliance_dissolved = add(new WorldLogAsset
+		{
+			id = "alliance_dissolved",
+			path_icon = "ui/Icons/iconAlliance",
+			color = Toolbox.color_log_warning,
+			text_replacer = nameReplacer
+		});
+		kingdom_new = add(new WorldLogAsset
+		{
+			id = "kingdom_new",
+			group = "kingdoms",
+			path_icon = "ui/Icons/iconKingdom",
+			color = Toolbox.color_log_neutral,
+			text_replacer = nameReplacer
+		});
+		kingdom_destroyed = add(new WorldLogAsset
+		{
+			id = "kingdom_destroyed",
+			group = "kingdoms",
+			path_icon = "ui/Icons/actor_traits/iconPyromaniac",
+			color = Toolbox.color_log_warning,
+			text_replacer = nameReplacer
+		});
+		kingdom_shattered = add(new WorldLogAsset
+		{
+			id = "kingdom_shattered",
+			group = "kingdoms",
+			path_icon = "ui/Icons/actor_traits/iconPyromaniac",
+			random_ids = 3,
+			color = Toolbox.color_log_warning,
+			text_replacer = kingdomReplacer
+		});
+		kingdom_fractured = add(new WorldLogAsset
+		{
+			id = "kingdom_fractured",
+			group = "kingdoms",
+			path_icon = "ui/Icons/actor_traits/iconPyromaniac",
+			random_ids = 3,
+			color = Toolbox.color_log_warning,
+			text_replacer = kingdomReplacer
+		});
+		kingdom_royal_clan_new = add(new WorldLogAsset
+		{
+			id = "kingdom_royal_clan_new",
+			group = "clans",
+			path_icon = "ui/Icons/iconClan",
+			color = Toolbox.color_log_neutral,
+			random_ids = 3,
+			text_replacer = delegate(WorldLogMessage pMessage, ref string pText)
+			{
+				updateText(ref pText, pMessage, "$kingdom$", 1);
+				updateText(ref pText, pMessage, "$clan$", 2);
+				updateText(ref pText, pMessage, "$king$", 3);
+			}
+		});
+		kingdom_royal_clan_changed = add(new WorldLogAsset
+		{
+			id = "kingdom_royal_clan_changed",
+			group = "clans",
+			path_icon = "ui/Icons/iconClan",
+			color = Toolbox.color_log_neutral,
+			random_ids = 3,
+			text_replacer = delegate(WorldLogMessage pMessage, ref string pText)
+			{
+				updateText(ref pText, pMessage, "$kingdom$", 1);
+				updateText(ref pText, pMessage, "$old_clan$", 2);
+				updateText(ref pText, pMessage, "$new_clan$", 3);
+			}
+		});
+		kingdom_royal_clan_dead = add(new WorldLogAsset
+		{
+			id = "kingdom_royal_clan_dead",
+			group = "clans",
+			path_icon = "ui/Icons/iconClan",
+			color = Toolbox.color_log_warning,
+			random_ids = 3,
+			text_replacer = delegate(WorldLogMessage pMessage, ref string pText)
+			{
+				updateText(ref pText, pMessage, "$kingdom$", 1);
+				updateText(ref pText, pMessage, "$clan$", 2);
+			}
+		});
+		city_destroyed = add(new WorldLogAsset
+		{
+			id = "city_destroyed",
+			group = "cities",
+			path_icon = "ui/Icons/actor_traits/iconPyromaniac",
+			color = Toolbox.color_log_warning,
+			text_replacer = nameReplacer
+		});
+		auto_tester = add(new WorldLogAsset
+		{
+			id = "auto_tester",
+			path_icon = "ui/Icons/iconPlay",
+			color = Toolbox.color_log_warning,
+			text_replacer = delegate(WorldLogMessage pMessage, ref string pText)
+			{
+				pText = pMessage.special1;
+			}
+		});
+		addDisasters();
+	}
+
+	private void addDisasters()
+	{
+		//IL_0012: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0017: Unknown result type (might be due to invalid IL or missing references)
+		add(new WorldLogAsset
+		{
+			id = "$basic_disaster$",
+			color = Toolbox.color_log_warning,
+			group = "disasters"
+		});
+		clone("disaster_tornado", "$basic_disaster$");
+		t.locale_id = "worldlog_disaster_tornado";
+		t.path_icon = "ui/Icons/iconTornado";
+		clone("disaster_meteorite", "$basic_disaster$");
+		t.locale_id = "worldlog_disaster_meteorite";
+		t.path_icon = "ui/Icons/iconMeteorite";
+		clone("disaster_hellspawn", "$basic_disaster$");
+		t.locale_id = "worldlog_disaster_hellspawn";
+		t.path_icon = "ui/Icons/iconDemon";
+		clone("disaster_earthquake", "$basic_disaster$");
+		t.locale_id = "worldlog_disaster_earthquake";
+		t.path_icon = "ui/Icons/iconEarthquake";
+		clone("disaster_greg_abominations", "$basic_disaster$");
+		t.locale_id = "worldlog_disaster_greg_abominations";
+		t.path_icon = "ui/Icons/iconGreg";
+		clone("disaster_ice_ones", "$basic_disaster$");
+		t.locale_id = "worldlog_disaster_ice_ones";
+		t.path_icon = "ui/Icons/iconWalker";
+		clone("disaster_sudden_snowman", "$basic_disaster$");
+		t.locale_id = "worldlog_disaster_sudden_snowman";
+		t.path_icon = "ui/Icons/iconSnowMan";
+		clone("disaster_garden_surprise", "$basic_disaster$");
+		t.locale_id = "worldlog_disaster_garden_surprise";
+		t.path_icon = "ui/Icons/iconSuperPumpkin";
+		clone("disaster_dragon_from_farlands", "$basic_disaster$");
+		t.locale_id = "worldlog_disaster_dragon_from_farlands";
+		t.path_icon = "ui/Icons/iconDragon";
+		clone("disaster_bandits", "$basic_disaster$");
+		t.locale_id = "worldlog_disaster_bandits";
+		t.path_icon = "ui/Icons/iconBandit";
+		clone("disaster_alien_invasion", "$basic_disaster$");
+		t.locale_id = "worldlog_disaster_alien_invasion";
+		t.path_icon = "ui/Icons/iconUfo";
+		clone("disaster_biomass", "$basic_disaster$");
+		t.locale_id = "worldlog_disaster_biomass";
+		t.path_icon = "ui/Icons/iconBiomass";
+		clone("disaster_tumor", "$basic_disaster$");
+		t.locale_id = "worldlog_disaster_tumor";
+		t.path_icon = "ui/Icons/iconTumor";
+		clone("disaster_heatwave", "$basic_disaster$");
+		t.locale_id = "worldlog_disaster_heatwave";
+		t.path_icon = "ui/Icons/iconFire";
+		clone("disaster_evil_mage", "$basic_disaster$");
+		t.locale_id = "worldlog_disaster_evil_mage";
+		t.path_icon = "ui/Icons/iconEvilMage";
+		t.text_replacer = nameReplacer;
+		clone("$city_name_disaster$", "$basic_disaster$");
+		t.text_replacer = delegate(WorldLogMessage pMessage, ref string pText)
+		{
+			updateText(ref pText, pMessage, "$name$", 1);
+			updateText(ref pText, pMessage, "$city$", 2);
+		};
+		clone("disaster_underground_necromancer", "$city_name_disaster$");
+		t.locale_id = "worldlog_disaster_underground_necromancer";
+		t.path_icon = "ui/Icons/iconNecromancer";
+		clone("disaster_mad_thoughts", "$city_name_disaster$");
+		t.locale_id = "worldlog_disaster_mad_thoughts";
+		t.path_icon = "ui/Icons/actor_traits/iconMadness";
+	}
+
+	private void nameReplacer(WorldLogMessage pMessage, ref string pText)
+	{
+		updateText(ref pText, pMessage, "$name$", 1);
+	}
+
+	private void kingReplacer(WorldLogMessage pMessage, ref string pText)
+	{
+		updateText(ref pText, pMessage, "$kingdom$", 1);
+		updateText(ref pText, pMessage, "$king$", 2);
+	}
+
+	private void kingCityReplacer(WorldLogMessage pMessage, ref string pText)
+	{
+		updateText(ref pText, pMessage, "$kingdom$", 1);
+		updateText(ref pText, pMessage, "$king$", 2);
+		updateText(ref pText, pMessage, "$city$", 3);
+	}
+
+	private void kingdomReplacer(WorldLogMessage pMessage, ref string pText)
+	{
+		updateText(ref pText, pMessage, "$kingdom$", 1);
+	}
+
+	public override void editorDiagnosticLocales()
+	{
+		base.editorDiagnosticLocales();
+		foreach (WorldLogAsset item in list)
+		{
+			foreach (string localeID in item.getLocaleIDs())
+			{
+				checkLocale(item, localeID);
+			}
+		}
+	}
+}
+// --- End of File: WorldLogLibrary.cs ---
+
+
+
+// --- Start of File: WorldLogMessage.cs ---
+using System;
+using Beebyte.Obfuscator;
+using SQLite;
+using UnityEngine;
+
+[Serializable]
+[Preserve]
+[Skip]
+public class WorldLogMessage
+{
+	[NotNull]
+	public string asset_id { get; set; }
+
+	[NotNull]
+	public int timestamp { get; set; }
+
+	public string special1 { get; set; }
+
+	public string special2 { get; set; }
+
+	public string special3 { get; set; }
+
+	public string color_special_1 { get; set; }
+
+	public string color_special_2 { get; set; }
+
+	public string color_special_3 { get; set; }
+
+	public long unit_id { get; set; } = -1L;
+
+
+	public long kingdom_id { get; set; } = -1L;
+
+
+	public int? x { get; set; }
+
+	public int? y { get; set; }
+
+	[Ignore]
+	public Vector2 location
+	{
+		get
+		{
+			//IL_002a: Unknown result type (might be due to invalid IL or missing references)
+			//IL_004e: Unknown result type (might be due to invalid IL or missing references)
+			if (!x.HasValue || !y.HasValue)
+			{
+				return new Vector2(-1f, -1f);
+			}
+			return new Vector2((float)x.Value, (float)y.Value);
+		}
+		set
+		{
+			//IL_0001: Unknown result type (might be due to invalid IL or missing references)
+			//IL_0013: Unknown result type (might be due to invalid IL or missing references)
+			x = (int)value.x;
+			y = (int)value.y;
+		}
+	}
+
+	[Ignore]
+	public Actor unit
+	{
+		get
+		{
+			return World.world.units.get(unit_id);
+		}
+		set
+		{
+			unit_id = value?.getID() ?? (-1);
+		}
+	}
+
+	[Ignore]
+	public Kingdom kingdom
+	{
+		get
+		{
+			return World.world.kingdoms.get(kingdom_id);
+		}
+		set
+		{
+			kingdom_id = value?.getID() ?? (-1);
+		}
+	}
+
+	[Ignore]
+	public Color color_special1
+	{
+		set
+		{
+			//IL_0001: Unknown result type (might be due to invalid IL or missing references)
+			//IL_0002: Unknown result type (might be due to invalid IL or missing references)
+			color_special_1 = Toolbox.colorToHex(Color32.op_Implicit(value), pAlpha: false);
+		}
+	}
+
+	[Ignore]
+	public Color color_special2
+	{
+		set
+		{
+			//IL_0001: Unknown result type (might be due to invalid IL or missing references)
+			//IL_0002: Unknown result type (might be due to invalid IL or missing references)
+			color_special_2 = Toolbox.colorToHex(Color32.op_Implicit(value), pAlpha: false);
+		}
+	}
+
+	[Ignore]
+	public Color color_special3
+	{
+		set
+		{
+			//IL_0001: Unknown result type (might be due to invalid IL or missing references)
+			//IL_0002: Unknown result type (might be due to invalid IL or missing references)
+			color_special_3 = Toolbox.colorToHex(Color32.op_Implicit(value), pAlpha: false);
+		}
+	}
+
+	public WorldLogMessage()
+	{
+	}
+
+	public WorldLogMessage(WorldLogAsset pAsset, string pSpecial1 = null, string pSpecial2 = null, string pSpecial3 = null)
+	{
+		asset_id = pAsset.id;
+		special1 = pSpecial1;
+		special2 = pSpecial2;
+		special3 = pSpecial3;
+		x = null;
+		y = null;
+		unit_id = -1L;
+		color_special_1 = null;
+		color_special_2 = null;
+		color_special_3 = null;
+		timestamp = (int)World.world.getCurWorldTime();
+		unit = null;
+	}
+}
+// --- End of File: WorldLogMessage.cs ---
+
+
+
+// --- Start of File: WorldLogMessageExtensions.cs ---
+using UnityEngine;
+using UnityEngine.UI;
+using db;
+
+public static class WorldLogMessageExtensions
+{
+	public static void clear(this WorldLogMessage pMessage)
+	{
+		pMessage.unit = null;
+	}
+
+	public static void add(this WorldLogMessage pMessage)
+	{
+		HistoryHud.instance.newHistory(pMessage);
+		DBInserter.insertLog(pMessage);
+	}
+
+	public static string getFormatedText(this WorldLogMessage pMessage, Text pTextField)
+	{
+		//IL_0052: Unknown result type (might be due to invalid IL or missing references)
+		WorldLogAsset asset = pMessage.getAsset();
+		string localeID;
+		if (asset.random_ids > 0)
+		{
+			int pIndex = pMessage.timestamp % asset.random_ids + 1;
+			localeID = asset.getLocaleID(pIndex);
+		}
+		else
+		{
+			localeID = asset.getLocaleID();
+		}
+		string pText = LocalizedTextManager.getText(localeID);
+		if (asset.text_replacer != null)
+		{
+			asset.text_replacer(pMessage, ref pText);
+		}
+		((Graphic)pTextField).color = asset.color;
+		return pText;
+	}
+
+	public static bool followLocation(this WorldLogMessage pMessage)
+	{
+		if (pMessage.hasFollowLocation())
+		{
+			WorldLog.locationFollow(pMessage.unit);
+			return true;
+		}
+		return false;
+	}
+
+	public static void jumpToLocation(this WorldLogMessage pMessage)
+	{
+		//IL_000a: Unknown result type (might be due to invalid IL or missing references)
+		//IL_000f: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0010: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0011: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0026: Unknown result type (might be due to invalid IL or missing references)
+		if (!pMessage.followLocation())
+		{
+			Vector3 pPoint = pMessage.getLocation();
+			if (pPoint != Vector3.zero && Toolbox.inMapBorder(ref pPoint))
+			{
+				WorldLog.locationJump(pPoint);
+			}
+		}
+	}
+
+	public static bool hasLocation(this WorldLogMessage pMessage)
+	{
+		//IL_0001: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0006: Unknown result type (might be due to invalid IL or missing references)
+		return pMessage.getLocation() != Vector3.zero;
+	}
+
+	public static bool hasFollowLocation(this WorldLogMessage pMessage)
+	{
+		if (pMessage.unit != null && pMessage.unit.isAlive())
+		{
+			return true;
+		}
+		return false;
+	}
+
+	public static Vector3 getLocation(this WorldLogMessage pMessage)
+	{
+		//IL_007c: Unknown result type (might be due to invalid IL or missing references)
+		//IL_001b: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0020: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0061: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0066: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0071: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0076: Unknown result type (might be due to invalid IL or missing references)
+		if (pMessage.unit != null && pMessage.unit.isAlive())
+		{
+			return Vector2.op_Implicit(pMessage.unit.current_position);
+		}
+		if (pMessage.x != -1 && pMessage.y != -1)
+		{
+			Vector2 pPoint = pMessage.location;
+			if (Toolbox.inMapBorder(ref pPoint))
+			{
+				return Vector2.op_Implicit(pMessage.location);
+			}
+		}
+		return Vector3.zero;
+	}
+
+	public static WorldLogAsset getAsset(this WorldLogMessage pMessage)
+	{
+		return AssetManager.world_log_library.get(pMessage.asset_id);
+	}
+
+	public static string getSpecial(this WorldLogMessage pMessage, int pSpecialId)
+	{
+		return pSpecialId switch
+		{
+			1 => Toolbox.coloredText(pMessage.special1, pMessage.color_special_1), 
+			2 => Toolbox.coloredText(pMessage.special2, pMessage.color_special_2), 
+			3 => Toolbox.coloredText(pMessage.special3, pMessage.color_special_3), 
+			_ => "", 
+		};
+	}
+}
+// --- End of File: WorldLogMessageExtensions.cs ---
+
+
+
+// --- Start of File: WorldLogTextFormatter.cs ---
+public delegate void WorldLogTextFormatter(WorldLogMessage pMessage, ref string pText);
+// --- End of File: WorldLogTextFormatter.cs ---
+
+
+
+// --- Start of File: WorldLogWindow.cs ---
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+using db;
+
+public class WorldLogWindow : MonoBehaviour
+{
+	private const int PADDING_ELEMENTS = 3;
+
+	[SerializeField]
+	private WorldLogElement _element_prefab_log;
+
+	[SerializeField]
+	private EmptyLogElement _element_prefab_empty;
+
+	[SerializeField]
+	private Transform _transform_content;
+
+	[SerializeField]
+	private GameObject _no_items;
+
+	[SerializeField]
+	private GridLayoutGroup _grid;
+
+	[SerializeField]
+	private ScrollRect _scroll_rect;
+
+	[SerializeField]
+	private ToggleButton _prefab;
+
+	private ObjectPoolGenericMono<WorldLogElement> _pool;
+
+	private ObjectPoolGenericMono<EmptyLogElement> _pool_empty;
+
+	private HashSet<string> _selected_groups = new HashSet<string>();
+
+	private ListPool<WorldLogMessage> _messages;
+
+	private bool _autolayout_done;
+
+	private void Awake()
+	{
+		//IL_00e0: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00ea: Unknown result type (might be due to invalid IL or missing references)
+		_pool = new ObjectPoolGenericMono<WorldLogElement>(_element_prefab_log, _transform_content);
+		_pool_empty = new ObjectPoolGenericMono<EmptyLogElement>(_element_prefab_empty, _transform_content);
+		foreach (HistoryGroupAsset tAsset in AssetManager.history_groups.list)
+		{
+			Object.Instantiate<ToggleButton>(_prefab, ((Component)_grid).transform).init(tAsset.icon_path, tAsset.getLocaleID(), delegate(ToggleButton pButton)
+			{
+				if (pButton.is_on)
+				{
+					_selected_groups.Add(tAsset.id);
+				}
+				else
+				{
+					_selected_groups.Remove(tAsset.id);
+				}
+			}, showSorted);
+		}
+		int num = 198 / AssetManager.history_groups.list.Count;
+		_grid.cellSize = new Vector2((float)num, _grid.cellSize.y);
+	}
+
+	private void OnEnable()
+	{
+		clear();
+		_messages = DBGetter.getWorldLogMessages();
+		bool flag = _messages.Any();
+		_no_items.SetActive(!flag);
+		((Component)_grid).gameObject.SetActive(flag);
+		if (flag)
+		{
+			showSorted();
+		}
+	}
+
+	private void OnRenderObject()
+	{
+		_autolayout_done = true;
+	}
+
+	private void LateUpdate()
+	{
+		//IL_002c: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0043: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0048: Unknown result type (might be due to invalid IL or missing references)
+		if (!_autolayout_done)
+		{
+			return;
+		}
+		IReadOnlyList<EmptyLogElement> listTotal = _pool_empty.getListTotal();
+		int num = int.MaxValue;
+		int num2 = int.MinValue;
+		float y = ((Transform)_scroll_rect.content).localPosition.y;
+		Rect rect = _scroll_rect.viewport.rect;
+		float pScrollRectTop = y + ((Rect)(ref rect)).height;
+		for (int i = 0; i < listTotal.Count; i++)
+		{
+			EmptyLogElement emptyLogElement = listTotal[i];
+			if (!((Component)emptyLogElement).gameObject.activeSelf)
+			{
+				continue;
+			}
+			if (IsVisibleInScrollRect(emptyLogElement.rect_transform, _scroll_rect, pScrollRectTop, y))
+			{
+				if (num == int.MaxValue)
+				{
+					num = i;
+				}
+				num2 = i;
+			}
+			else if (num2 > int.MinValue)
+			{
+				break;
+			}
+		}
+		if (num2 == int.MaxValue || num == int.MinValue)
+		{
+			return;
+		}
+		int num3 = Math.Max(0, num - 3);
+		int num4 = Math.Min(listTotal.Count - 1, num2 + 3);
+		for (int j = 0; j < listTotal.Count; j++)
+		{
+			if (j < num3 || j > num4)
+			{
+				EmptyLogElement emptyLogElement2 = listTotal[j];
+				WorldLogElement element = emptyLogElement2.getElement();
+				if (!((Object)(object)element == (Object)null))
+				{
+					_pool.release(element);
+					emptyLogElement2.setElement(null);
+				}
+			}
+		}
+		for (int k = num3; k <= num4; k++)
+		{
+			EmptyLogElement emptyLogElement3 = listTotal[k];
+			if (((Component)emptyLogElement3).gameObject.activeSelf)
+			{
+				WorldLogElement element2 = emptyLogElement3.getElement();
+				if (!((Object)(object)element2 != (Object)null))
+				{
+					element2 = _pool.getNext();
+					emptyLogElement3.setElement(element2);
+				}
+			}
+		}
+	}
+
+	private bool IsVisibleInScrollRect(RectTransform pRectTransform, ScrollRect pScrollRect, float pScrollRectTop, float pScrollRectBottom)
+	{
+		//IL_0001: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0006: Unknown result type (might be due to invalid IL or missing references)
+		//IL_000b: Unknown result type (might be due to invalid IL or missing references)
+		//IL_000c: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0012: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0017: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0019: Unknown result type (might be due to invalid IL or missing references)
+		//IL_002a: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0039: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0046: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0056: Unknown result type (might be due to invalid IL or missing references)
+		Vector2 val = Vector2.op_Implicit(((Transform)pRectTransform).localPosition);
+		val *= -1f;
+		float num = pRectTransform.sizeDelta.y * 0.6f;
+		if (val.y <= pScrollRectTop + num + ((Component)this).transform.localPosition.y)
+		{
+			return val.y >= pScrollRectBottom - num + ((Component)this).transform.localPosition.y;
+		}
+		return false;
+	}
+
+	private void showSorted()
+	{
+		((MonoBehaviour)this).StartCoroutine(showSortedRoutine());
+	}
+
+	private IEnumerator showSortedRoutine()
+	{
+		clear();
+		using ListPool<WorldLogMessage> tSorted = new ListPool<WorldLogMessage>();
+		if (_selected_groups.Count == 0)
+		{
+			tSorted.AddRange(_messages);
+		}
+		else
+		{
+			foreach (ref WorldLogMessage message in _messages)
+			{
+				WorldLogMessage current = message;
+				WorldLogAsset asset = current.getAsset();
+				if (!string.IsNullOrEmpty(asset.group) && _selected_groups.Contains(asset.group))
+				{
+					tSorted.Add(current);
+				}
+			}
+		}
+		tSorted.Sort(sortByTime);
+		for (int i = 0; i < tSorted.Count; i++)
+		{
+			WorldLogMessage pMessage = tSorted[i];
+			EmptyLogElement next = _pool_empty.getNext();
+			next.load(pMessage);
+			next.setElement(null);
+			if (i % 20 == 0)
+			{
+				yield return null;
+			}
+		}
+	}
+
+	private int sortByTime(WorldLogMessage p1, WorldLogMessage p2)
+	{
+		return p2.timestamp.CompareTo(p1.timestamp);
+	}
+
+	private void OnDisable()
+	{
+		_messages?.Dispose();
+		_messages = null;
+	}
+
+	private void clear()
+	{
+		_pool.clear();
+		_pool_empty.clear();
+	}
+}
+// --- End of File: WorldLogWindow.cs ---
+
+
+
+// --- Start of File: WorldNetVersion.cs ---
+using System;
+
+[Serializable]
+public struct WorldNetVersion
+{
+	public string build;
+
+	public string version;
+}
+// --- End of File: WorldNetVersion.cs ---
+
+
+
+// --- Start of File: WorldNetWindow.cs ---
+using UnityEngine;
+
+public class WorldNetWindow : MonoBehaviour
+{
+}
+// --- End of File: WorldNetWindow.cs ---
+
+
+
+// --- Start of File: WorldObject.cs ---
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+using db;
+using db.tables;
+
+public class WorldObject : NanoObject, IMetaObject, ICoreObject
+{
+	protected static readonly HashSet<Family> _family_counter = new HashSet<Family>();
+
+	private HistoryMetaDataAsset _history_meta_data_asset => AssetManager.history_meta_data_library.get("world");
+
+	protected override MetaType meta_type => MetaType.World;
+
+	public override string name
+	{
+		get
+		{
+			return World.world.map_stats.name;
+		}
+		protected set
+		{
+			World.world.map_stats.name = value;
+		}
+	}
+
+	public List<Actor> units => World.world.units.getSimpleList();
+
+	public override long getID()
+	{
+		return 1L;
+	}
+
+	public int countUnits()
+	{
+		return World.world.units.Count;
+	}
+
+	public IEnumerable<Actor> getUnits()
+	{
+		return World.world.units;
+	}
+
+	public bool hasUnits()
+	{
+		return World.world.units.Count > 0;
+	}
+
+	public Actor getRandomUnit()
+	{
+		return World.world.units.GetRandom();
+	}
+
+	public Actor getRandomActorForReaper()
+	{
+		return null;
+	}
+
+	public IEnumerable<Family> getFamilies()
+	{
+		return World.world.families;
+	}
+
+	public int countFamilies()
+	{
+		return World.world.families.Count;
+	}
+
+	public bool hasFamilies()
+	{
+		return World.world.families.Count > 0;
+	}
+
+	public override ColorAsset getColor()
+	{
+		return AssetManager.kingdom_colors_library.list.GetRandom();
+	}
+
+	public MetaObjectData getMetaData()
+	{
+		throw new NotImplementedException();
+	}
+
+	public int getRenown()
+	{
+		throw new NotImplementedException();
+	}
+
+	public int getPopulationPeople()
+	{
+		throw new NotImplementedException();
+	}
+
+	public long getTotalKills()
+	{
+		throw new NotImplementedException();
+	}
+
+	public long getTotalDeaths()
+	{
+		throw new NotImplementedException();
+	}
+
+	public bool isSelected()
+	{
+		throw new NotImplementedException();
+	}
+
+	public Actor getOldestVisibleUnit()
+	{
+		throw new NotImplementedException();
+	}
+
+	public Actor getOldestVisibleUnitForNameplatesCached()
+	{
+		throw new NotImplementedException();
+	}
+
+	public void startCollectHistoryData()
+	{
+		Delegate[] invocationList = _history_meta_data_asset.collector.GetInvocationList();
+		for (int i = 0; i < invocationList.Length; i++)
+		{
+			HistoryTable obj = ((HistoryDataCollector)invocationList[i])(this);
+			obj.timestamp = World.world.map_stats.history_current_year;
+			DBInserter.insertData(obj, "world");
+		}
+	}
+
+	public void clearLastYearStats()
+	{
+	}
+
+	public ActorAsset getActorAsset()
+	{
+		throw new NotImplementedException();
+	}
+
+	public Sprite getSpriteIcon()
+	{
+		throw new NotImplementedException();
+	}
+
+	public bool isCursorOver()
+	{
+		throw new NotImplementedException();
+	}
+
+	public void setCursorOver()
+	{
+		throw new NotImplementedException();
+	}
+
+	public int getAge()
+	{
+		throw new NotImplementedException();
+	}
+
+	public bool isFavorite()
+	{
+		throw new NotImplementedException();
+	}
+
+	public void switchFavorite()
+	{
+		throw new NotImplementedException();
+	}
+
+	public bool hasCities()
+	{
+		return World.world.cities.Count > 0;
+	}
+
+	public IEnumerable<City> getCities()
+	{
+		return World.world.cities;
+	}
+
+	public bool hasKingdoms()
+	{
+		return World.world.kingdoms.Count > 0;
+	}
+
+	public IEnumerable<Kingdom> getKingdoms()
+	{
+		return World.world.kingdoms;
+	}
+}
+// --- End of File: WorldObject.cs ---
+
+
+
+// --- Start of File: WorldStats.cs ---
+using UnityEngine;
+
+public class WorldStats : StatisticsRows
+{
+	[SerializeField]
+	private WorldStatsTabs _tab_type;
+
+	protected override void init()
+	{
+		bool flag = _tab_type != WorldStatsTabs.Everything;
+		foreach (StatisticsAsset item in AssetManager.statistics_library.list)
+		{
+			if (item.is_world_statistics && (!flag || item.world_stats_tabs.HasFlag(_tab_type)))
+			{
+				addStatRow(item);
+			}
+		}
+	}
+}
+// --- End of File: WorldStats.cs ---
+
+
+
+// --- Start of File: WorldStatsTabs.cs ---
+using System;
+
+[Flags]
+public enum WorldStatsTabs
+{
+	Everything = 0,
+	General = 1,
+	Noosphere = 2,
+	Deaths = 4,
+	Biomes = 8
+}
+// --- End of File: WorldStatsTabs.cs ---
+
+
+
+// --- Start of File: WorldStatus.cs ---
+using UnityEngine;
+
+public class WorldStatus : MonoBehaviour
+{
+	public static int currentSlot;
+
+	public void setCurrentSlot(int pSlotId)
+	{
+		currentSlot = pSlotId;
+	}
+}
+// --- End of File: WorldStatus.cs ---
+
+
+
+// --- Start of File: WorldTemplateButton.cs ---
+using System;
+using UnityEngine;
+using UnityEngine.UI;
+
+public class WorldTemplateButton : MonoBehaviour
+{
+	public Image icon;
+
+	public Text counter;
+
+	public Text text;
+
+	public PowerButton button_left;
+
+	public PowerButton button_right;
+
+	public PowerButton button_switch;
+
+	public Action eventLeft;
+
+	public Action eventRight;
+
+	public Color color_enabled;
+
+	public Color color_disabled;
+
+	private MapGenTemplate _template => AssetManager.map_gen_templates.get(Config.current_map_template);
+
+	private MapGenSettingsAsset settings_asset => AssetManager.map_gen_settings.get(((Object)((Component)this).transform).name);
+
+	private void OnEnable()
+	{
+		updateCounter();
+	}
+
+	public void clickSwitch()
+	{
+		if (settings_asset == null)
+		{
+			Debug.LogError((object)("Forgot to setup gen button - " + ((Object)((Component)this).transform).name));
+			return;
+		}
+		settings_asset.action_switch(settings_asset);
+		updateCounter();
+	}
+
+	public void clickLeft()
+	{
+		if (settings_asset == null)
+		{
+			Debug.LogError((object)("Forgot to setup gen button - " + ((Object)((Component)this).transform).name));
+			return;
+		}
+		if (settings_asset.decrease == null)
+		{
+			Debug.LogError((object)("Forgot to setup gen button DECREASE - " + ((Object)((Component)this).transform).name));
+			return;
+		}
+		settings_asset.decrease(settings_asset);
+		updateCounter();
+	}
+
+	public void clickRight()
+	{
+		if (settings_asset == null)
+		{
+			Debug.LogError((object)("Forgot to setup gen button - " + ((Object)((Component)this).transform).name));
+			return;
+		}
+		if (settings_asset.increase == null)
+		{
+			Debug.LogError((object)("Forgot to setup gen button INCREASE - " + ((Object)((Component)this).transform).name));
+			return;
+		}
+		settings_asset.increase(settings_asset);
+		updateCounter();
+	}
+
+	public void updateCounter()
+	{
+		//IL_008a: Unknown result type (might be due to invalid IL or missing references)
+		//IL_009b: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00ac: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0055: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0066: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0077: Unknown result type (might be due to invalid IL or missing references)
+		int num = settings_asset.action_get();
+		((Component)text).GetComponent<LocalizedText>().setKeyAndUpdate(settings_asset.getLocaleID());
+		if (!settings_asset.is_switch)
+		{
+			counter.text = num.ToString();
+		}
+		if (num == 0)
+		{
+			((Graphic)text).color = color_disabled;
+			((Graphic)counter).color = color_disabled;
+			((Graphic)icon).color = color_disabled;
+		}
+		else
+		{
+			((Graphic)text).color = color_enabled;
+			((Graphic)counter).color = color_enabled;
+			((Graphic)icon).color = color_enabled;
+		}
+		if (settings_asset.is_switch)
+		{
+			if (num == 1)
+			{
+				((Component)button_switch).GetComponent<CanvasGroup>().alpha = 1f;
+				((Component)((Component)button_switch).transform.Find("Text")).GetComponent<LocalizedText>().setKeyAndUpdate("short_on");
+				button_switch.icon.sprite = SpriteTextureLoader.getSprite("ui/icons/IconOn");
+			}
+			else
+			{
+				((Component)button_switch).GetComponent<CanvasGroup>().alpha = 0.8f;
+				((Component)((Component)button_switch).transform.Find("Text")).GetComponent<LocalizedText>().setKeyAndUpdate("short_off");
+				button_switch.icon.sprite = SpriteTextureLoader.getSprite("ui/icons/IconOff");
+			}
+		}
+	}
+}
+// --- End of File: WorldTemplateButton.cs ---
+
+
+
+// --- Start of File: WorldTemplatesWindow.cs ---
+using UnityEngine;
+using UnityEngine.UI;
+
+public class WorldTemplatesWindow : MonoBehaviour
+{
+	public Text text_hi;
+
+	public Text text_size_warning;
+
+	public Image icon_1;
+
+	public Image icon_2;
+
+	public Image preview_template;
+
+	public Transform container_buttons;
+
+	public GameObject reset_button;
+
+	public CustomButtonSwitch switch_button;
+
+	private void Awake()
+	{
+		switch_button.click_increase = increaseSize;
+		switch_button.click_decrease = decreaseSize;
+	}
+
+	public void increaseSize()
+	{
+		int num = MapSizeLibrary.getSizes().IndexOf(Config.customMapSize);
+		num++;
+		if (num > MapSizeLibrary.getSizes().Length - 1)
+		{
+			num = 0;
+		}
+		Config.customMapSize = MapSizeLibrary.getSizes()[num];
+	}
+
+	public void decreaseSize()
+	{
+		int num = MapSizeLibrary.getSizes().IndexOf(Config.customMapSize);
+		num--;
+		if (num < 0)
+		{
+			num = MapSizeLibrary.getSizes().Length - 1;
+		}
+		Config.customMapSize = MapSizeLibrary.getSizes()[num];
+	}
+
+	private void Update()
+	{
+		MapSizeAsset mapSizeAsset = AssetManager.map_sizes.get(Config.customMapSize);
+		if (mapSizeAsset.show_warning)
+		{
+			((Component)text_hi).gameObject.SetActive(false);
+			((Component)text_size_warning).gameObject.SetActive(true);
+		}
+		else
+		{
+			((Component)text_hi).gameObject.SetActive(true);
+			((Component)text_size_warning).gameObject.SetActive(false);
+		}
+		icon_1.sprite = mapSizeAsset.getIconSprite();
+		icon_2.sprite = mapSizeAsset.getIconSprite();
+	}
+
+	private void OnEnable()
+	{
+		MapGenTemplate mapGenTemplate = AssetManager.map_gen_templates.get(Config.current_map_template);
+		preview_template.sprite = SpriteTextureLoader.getSprite(mapGenTemplate.path_icon);
+		checkButtons();
+		if (mapGenTemplate.show_reset_button)
+		{
+			reset_button.SetActive(true);
+		}
+		else
+		{
+			reset_button.SetActive(false);
+		}
+	}
+
+	public void resetTemplate()
+	{
+		MapGenTemplate pAsset = AssetManager.map_gen_templates.get(Config.current_map_template);
+		AssetManager.map_gen_templates.resetTemplateValues(pAsset);
+		checkButtons();
+	}
+
+	private void checkButtons()
+	{
+		MapGenTemplate pAsset = AssetManager.map_gen_templates.get(Config.current_map_template);
+		for (int i = 0; i < container_buttons.childCount; i++)
+		{
+			WorldTemplateButton component = ((Component)container_buttons.GetChild(i)).gameObject.GetComponent<WorldTemplateButton>();
+			if (!((Object)(object)component == (Object)null))
+			{
+				string name = ((Object)component).name;
+				if (AssetManager.map_gen_settings.get(name).allowed_check(pAsset))
+				{
+					((Component)component).gameObject.SetActive(true);
+					component.updateCounter();
+				}
+				else
+				{
+					((Component)component).gameObject.SetActive(false);
+				}
+			}
+		}
+	}
+}
+// --- End of File: WorldTemplatesWindow.cs ---
+
+
+
+// --- Start of File: WorldTile.cs ---
+using System;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using JetBrains.Annotations;
+using UnityEngine;
+using UnityEngine.Tilemaps;
+using UnityPools;
+
+public class WorldTile : IEquatable<WorldTile>, IDisposable
+{
+	[CanBeNull]
+	public TopTileType top_type;
+
+	[CanBeNull]
+	public TileType main_type;
+
+	private TileTypeBase cur_tile_type;
+
+	public bool obstacle_is_around;
+
+	internal TileBase current_rendered_tile_graphics;
+
+	public int burned_stages;
+
+	internal WorldTileZoneBorder world_tile_zone_border = new WorldTileZoneBorder();
+
+	public const int DEFAULT_HEALTH = 10;
+
+	public int health = 10;
+
+	public Vector3Int last_rendered_border_pos_ocean;
+
+	public Vector3Int last_rendered_pos_tile;
+
+	public TileTypeBase last_rendered_tile_type;
+
+	public float delayed_timer_bomb;
+
+	public string delayed_bomb_type = "";
+
+	public double timestamp_type_changed;
+
+	public WorldTileData data;
+
+	public int heat;
+
+	internal int explosion_wave;
+
+	internal int explosion_power;
+
+	private Actor _targeted_by;
+
+	public bool world_edge;
+
+	public WorldTile tile_up;
+
+	public WorldTile tile_down;
+
+	public WorldTile tile_left;
+
+	public WorldTile tile_right;
+
+	public WorldTile[] neighbours;
+
+	public WorldTile[] neighboursAll;
+
+	public TileIsland road_island;
+
+	public int pollinated;
+
+	public readonly int x;
+
+	public readonly int y;
+
+	public readonly Vector2Int pos;
+
+	public readonly Vector3 posV3;
+
+	public readonly Vector3 posV;
+
+	internal int minimap_building_x;
+
+	internal int minimap_building_y;
+
+	internal int flash_state;
+
+	internal ColorArray color_array;
+
+	public MapRegion region;
+
+	public TileZone zone;
+
+	public MapChunk chunk;
+
+	public Building building;
+
+	private List<Actor> _units;
+
+	internal int explosion_fx_stage;
+
+	internal bool is_checked_tile;
+
+	internal int score = -1;
+
+	public bool wall_check_dirty;
+
+	private bool _has_walls_around;
+
+	public bool is_liquid => Type.liquid;
+
+	public TileTypeBase Type
+	{
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		get
+		{
+			return cur_tile_type;
+		}
+	}
+
+	public int Height
+	{
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		get
+		{
+			return data.height;
+		}
+		set
+		{
+			data.height = value;
+			if (data.height < 0)
+			{
+				data.height = 0;
+			}
+			else if (data.height > 255)
+			{
+				data.height = 255;
+			}
+		}
+	}
+
+	public City zone_city => zone.city;
+
+	public bool has_tile_up => tile_up != null;
+
+	public bool has_tile_down => tile_down != null;
+
+	public bool has_tile_left => tile_left != null;
+
+	public bool has_tile_right => tile_right != null;
+
+	public int random_animation_seed => World.world.tile_manager.random_seeds[data.tile_id];
+
+	public int tile_id => data.tile_id;
+
+	public WorldTile(int pX, int pY, int pTileID)
+	{
+		//IL_002c: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0031: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0050: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0055: Unknown result type (might be due to invalid IL or missing references)
+		//IL_005f: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0064: Unknown result type (might be due to invalid IL or missing references)
+		//IL_006e: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0073: Unknown result type (might be due to invalid IL or missing references)
+		last_rendered_pos_tile = WorldTilemap.EMPTY_TILE_POS;
+		_units = UnsafeCollectionPool<List<Actor>, Actor>.Get();
+		data = new WorldTileData(pTileID);
+		pos = new Vector2Int(pX, pY);
+		posV3 = new Vector3((float)pX, (float)pY);
+		posV = new Vector3((float)pX, (float)pY);
+		posV3.x += Actor.sprite_offset.x;
+		posV3.y += Actor.sprite_offset.y;
+		x = pX;
+		y = pY;
+	}
+
+	public bool hasWallsAround()
+	{
+		if (wall_check_dirty)
+		{
+			wall_check_dirty = false;
+			_has_walls_around = false;
+			int i = 0;
+			for (int num = neighboursAll.Length; i < num; i++)
+			{
+				if (neighboursAll[i].Type.wall)
+				{
+					_has_walls_around = true;
+					break;
+				}
+			}
+		}
+		return _has_walls_around;
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool isTargeted()
+	{
+		return _targeted_by != null;
+	}
+
+	public bool isTargetedBy(Actor pActor)
+	{
+		return _targeted_by == pActor;
+	}
+
+	public void cleanTargetedBy()
+	{
+		_targeted_by = null;
+	}
+
+	public void setTargetedBy(Actor pActor)
+	{
+		_targeted_by = pActor;
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void doUnits(Action<Actor> pAction)
+	{
+		List<Actor> units = _units;
+		if (units.Count == 0)
+		{
+			return;
+		}
+		for (int i = 0; i < units.Count; i++)
+		{
+			Actor actor = units[i];
+			if (actor.isAlive())
+			{
+				pAction(actor);
+			}
+		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void doUnits(Func<Actor, bool> pAction)
+	{
+		List<Actor> units = _units;
+		if (units.Count == 0)
+		{
+			return;
+		}
+		for (int i = 0; i < units.Count; i++)
+		{
+			Actor actor = units[i];
+			if (actor.isAlive() && !pAction(actor))
+			{
+				break;
+			}
+		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public int countUnits()
+	{
+		return _units.Count;
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool hasUnits()
+	{
+		return _units.Count > 0;
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void addUnit(Actor pActor)
+	{
+		_units.Add(pActor);
+	}
+
+	public void resetNeighbourLists()
+	{
+		neighbours = null;
+		neighboursAll = null;
+	}
+
+	public void pollinate()
+	{
+		pollinated++;
+		if (pollinated > 5)
+		{
+			growFlowers();
+			pollinated = 0;
+		}
+	}
+
+	private void growFlowers()
+	{
+		WorldTile random = Toolbox.getRandomChunkFromTile(this).tiles.GetRandom();
+		BiomeAsset biome_asset = random.Type.biome_asset;
+		if (biome_asset != null && biome_asset.grow_type_selector_plants != null)
+		{
+			BuildingActions.tryGrowVegetationRandom(random, VegetationType.Plants);
+		}
+	}
+
+	public bool canBuildOn(BuildingAsset pNewTemplate)
+	{
+		if (pNewTemplate.needs_farms_ground && !main_type.can_be_farm)
+		{
+			return false;
+		}
+		if (Type.liquid && !pNewTemplate.can_be_placed_on_liquid)
+		{
+			return false;
+		}
+		if (pNewTemplate.burnable && isOnFire())
+		{
+			return false;
+		}
+		if (pNewTemplate.affected_by_lava && Type.lava)
+		{
+			return false;
+		}
+		if (!pNewTemplate.can_be_placed_on_blocks && Type.block)
+		{
+			return false;
+		}
+		if (building != null && !building.isUsable() && !building.asset.flora && !pNewTemplate.remove_ruins)
+		{
+			return false;
+		}
+		if (building != null && building.isUsable() && pNewTemplate.ignore_same_building_id && building.asset == pNewTemplate)
+		{
+			return false;
+		}
+		if (!pNewTemplate.ignore_buildings && building != null && building.isUsable() && !building.asset.ignored_by_cities)
+		{
+			return false;
+		}
+		if (pNewTemplate.remove_buildings_when_dropped && building != null)
+		{
+			if (!building.isUsable() && pNewTemplate.remove_ruins)
+			{
+				return true;
+			}
+			if (!pNewTemplate.remove_civ_buildings && building.asset.city_building)
+			{
+				return false;
+			}
+		}
+		if (!pNewTemplate.ignore_buildings && building != null && building.asset.city_building && building.isUsable() && building.asset.priority >= pNewTemplate.priority)
+		{
+			return false;
+		}
+		return true;
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool hasBuilding()
+	{
+		return building != null;
+	}
+
+	public void setRoad()
+	{
+		World.world.roads_calculator.setDirty(this);
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool isSameIsland(WorldTile pTile)
+	{
+		return pTile.region.island == region.island;
+	}
+
+	public Color32 getColor()
+	{
+		//IL_0006: Unknown result type (might be due to invalid IL or missing references)
+		return Type.color;
+	}
+
+	internal void addNeighbour(WorldTile pNeighbour, TileDirection pDirection, List<WorldTile> pNeighbours, List<WorldTile> pNeighboursAll, bool pDiagonal = false)
+	{
+		if (pNeighbour == null)
+		{
+			world_edge = true;
+			return;
+		}
+		pNeighboursAll.Add(pNeighbour);
+		if (!pDiagonal)
+		{
+			pNeighbours.Add(pNeighbour);
+			switch (pDirection)
+			{
+			case TileDirection.Up:
+				tile_up = pNeighbour;
+				break;
+			case TileDirection.Down:
+				tile_down = pNeighbour;
+				break;
+			case TileDirection.Left:
+				tile_left = pNeighbour;
+				break;
+			case TileDirection.Right:
+				tile_right = pNeighbour;
+				break;
+			}
+		}
+	}
+
+	public BiomeAsset getBiome()
+	{
+		if (Type.is_biome)
+		{
+			return Type.biome_asset;
+		}
+		return null;
+	}
+
+	internal bool IsOceanAround()
+	{
+		for (int i = 0; i < neighbours.Length; i++)
+		{
+			if (neighbours[i].Type.layer_type == TileLayerType.Ocean)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal bool isGoodForBoat()
+	{
+		return Type.layer_type == TileLayerType.Ocean;
+	}
+
+	internal bool IsTypeAround(TileTypeBase pType)
+	{
+		for (int i = 0; i < neighbours.Length; i++)
+		{
+			if (neighbours[i].Type == pType)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	internal bool startFire(bool pForce = false)
+	{
+		if (Type.explodable)
+		{
+			World.world.explosion_layer.explodeBomb(this);
+		}
+		if (!pForce && (!Type.burnable || isOnFire()))
+		{
+			return false;
+		}
+		if (Type.liquid)
+		{
+			return false;
+		}
+		unfreeze(99);
+		bool flag = false;
+		if (building != null && building.isBurnable())
+		{
+			ActionLibrary.addBurningEffectOnTarget(null, building);
+			flag = true;
+		}
+		if (Type.burnable || flag || pForce)
+		{
+			flag = true;
+			if (Type.IsType("fireworks"))
+			{
+				EffectsLibrary.spawn("fx_fireworks", this);
+			}
+			data.fire_timestamp = World.world.getCurWorldTime();
+			if (Type.burnable)
+			{
+				health -= Type.burn_rate;
+				setBurned();
+				World.world.flash_effects.flashPixel(this, 10);
+				if (health <= 0)
+				{
+					MapAction.decreaseTile(this, pDamage: true);
+				}
+			}
+			setFireData(pVal: true);
+		}
+		return flag;
+	}
+
+	public void setFireData(bool pVal)
+	{
+		World.world.tile_manager.fires[data.tile_id] = pVal;
+		if (isOnFire())
+		{
+			WorldBehaviourActionFire.addFire(this);
+		}
+		else
+		{
+			WorldBehaviourActionFire.removeFire(this);
+		}
+	}
+
+	public void updateStats()
+	{
+		if (top_type != null)
+		{
+			cur_tile_type = top_type;
+		}
+		else
+		{
+			cur_tile_type = main_type;
+		}
+		WorldTile[] array = neighboursAll;
+		for (int i = 0; i < array.Length; i++)
+		{
+			array[i].wall_check_dirty = true;
+		}
+		if (!isTemporaryFrozen())
+		{
+			return;
+		}
+		if (!cur_tile_type.can_be_frozen)
+		{
+			data.frozen = false;
+			return;
+		}
+		TopTileType topTileType = AssetManager.top_tiles.get(main_type.freeze_to_id);
+		if (topTileType == null)
+		{
+			if (!main_type.can_be_frozen && cur_tile_type.can_be_frozen)
+			{
+				Debug.LogError((object)"TILE SETTINGS CONFILICT! SET TOP TILE TO can_be_frozen FALSE!");
+			}
+			Debug.LogError((object)("TILE 1 f:" + cur_tile_type.freeze_to_id + " m: " + cur_tile_type.id));
+			Debug.LogError((object)("TILE 2 f:" + main_type.freeze_to_id + " m: " + main_type.id));
+		}
+		else
+		{
+			cur_tile_type = topTileType;
+		}
+	}
+
+	public void setTopTileType(TopTileType pTopTile, bool pUpdateStats = true)
+	{
+		if (top_type != pTopTile)
+		{
+			if (top_type != null)
+			{
+				zone.removeTileType(top_type, this);
+			}
+			if (pTopTile != null)
+			{
+				zone.addTileType(pTopTile, this);
+			}
+		}
+		if (top_type != null)
+		{
+			top_type.hashsetRemove(this);
+		}
+		top_type = pTopTile;
+		if (top_type != null)
+		{
+			top_type.hashsetAdd(this);
+		}
+		if (pUpdateStats)
+		{
+			World.world.setTileDirty(this);
+			updateStats();
+		}
+	}
+
+	public void setTileTypes(TileType pType, TopTileType pTopTile, bool pSetDirty = true)
+	{
+		setTopTileType(pTopTile, pUpdateStats: false);
+		setTileType(pType, pSetDirty);
+	}
+
+	public void setTileTypes(string pType, TopTileType pTopTile)
+	{
+		setTopTileType(pTopTile, pUpdateStats: false);
+		setTileType(pType);
+	}
+
+	public void setTileType(TileType pType, bool pSetDirty = true)
+	{
+		health = 10;
+		if (zone != null)
+		{
+			if (main_type != pType)
+			{
+				if (main_type != null)
+				{
+					zone.removeTileType(main_type, this);
+				}
+				zone.addTileType(pType, this);
+			}
+			if (main_type == null)
+			{
+				if (pType.liquid)
+				{
+					zone.tiles_with_liquid++;
+				}
+				if (pType.ground)
+				{
+					zone.tiles_with_ground++;
+				}
+			}
+			else
+			{
+				if (!main_type.liquid && pType.liquid)
+				{
+					zone.tiles_with_liquid++;
+				}
+				else if (main_type.liquid && !pType.liquid)
+				{
+					zone.tiles_with_liquid--;
+				}
+				if (!main_type.ground && pType.ground)
+				{
+					zone.tiles_with_ground++;
+				}
+				else if (main_type.ground && !pType.ground)
+				{
+					zone.tiles_with_ground--;
+				}
+			}
+		}
+		if (main_type != null)
+		{
+			main_type.hashsetRemove(this);
+		}
+		main_type = pType;
+		main_type.hashsetAdd(this);
+		updateStats();
+		if (pSetDirty)
+		{
+			World.world.setTileDirty(this);
+		}
+		timestamp_type_changed = World.world.getCurWorldTime();
+	}
+
+	public void setTileType(string pType)
+	{
+		TileType tileType = AssetManager.tiles.get(pType);
+		if (tileType == null)
+		{
+			tileType = TileLibrary.soil_low;
+		}
+		setTileType(tileType);
+	}
+
+	public void setBurned(int pForceVal = -1)
+	{
+		if (Type.can_be_set_on_fire)
+		{
+			if (pForceVal == -1)
+			{
+				setBurnedStage(15 - Randy.randomInt(0, 10));
+			}
+			else
+			{
+				setBurnedStage(burned_stages);
+			}
+			World.world.burned_layer.setTileDirty(this);
+		}
+	}
+
+	public void setBurnedStage(int pValue)
+	{
+		if (burned_stages != 0 || pValue != 0)
+		{
+			burned_stages = pValue;
+			WorldBehaviourActionBurnedTiles.addTile(this);
+		}
+	}
+
+	public void removeBurn()
+	{
+		if (burned_stages != 0)
+		{
+			setBurnedStage(0);
+			World.world.burned_layer.setTileDirty(this);
+		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool isOnFire()
+	{
+		return World.world.tile_manager.fires[data.tile_id];
+	}
+
+	internal void stopFire()
+	{
+		if (isOnFire())
+		{
+			setFireData(pVal: false);
+			data.fire_timestamp = -1.0;
+			setBurned();
+		}
+	}
+
+	internal bool canGrow()
+	{
+		if (!isOnFire())
+		{
+			return burned_stages == 0;
+		}
+		return false;
+	}
+
+	public void removeTrees(bool pFlash = true)
+	{
+		if (pFlash)
+		{
+			World.world.flash_effects.flashPixel(this, 20);
+		}
+		World.world.setTileDirty(this);
+	}
+
+	public void removeGrass(bool pFlash = true)
+	{
+		if (pFlash)
+		{
+			World.world.flash_effects.flashPixel(this, 20);
+		}
+		MapAction.removeGreens(this);
+	}
+
+	public void topTileEaten(int pTicks = 5)
+	{
+		removeGrass();
+	}
+
+	public bool isTileRank(TileRank pRank)
+	{
+		return main_type.rank_type == pRank;
+	}
+
+	internal void clearUnits()
+	{
+		_units.Clear();
+	}
+
+	internal void clear()
+	{
+		//IL_009a: Unknown result type (might be due to invalid IL or missing references)
+		//IL_009f: Unknown result type (might be due to invalid IL or missing references)
+		last_rendered_tile_type = null;
+		health = 10;
+		minimap_building_x = 0;
+		minimap_building_y = 0;
+		clearUnits();
+		cleanTargetedBy();
+		explosion_wave = 0;
+		explosion_power = 0;
+		pollinated = 0;
+		setTileTypes(TileLibrary.deep_ocean, null, pSetDirty: false);
+		delayed_timer_bomb = 0f;
+		Height = 0;
+		current_rendered_tile_graphics = null;
+		heat = 0;
+		flash_state = 0;
+		burned_stages = 0;
+		building = null;
+		data.clear();
+		explosion_fx_stage = 0;
+		region = null;
+		last_rendered_pos_tile = WorldTilemap.EMPTY_TILE_POS;
+		world_tile_zone_border.reset();
+	}
+
+	public void Dispose()
+	{
+		clear();
+		wall_check_dirty = false;
+		_has_walls_around = false;
+		if (main_type != null)
+		{
+			main_type.hashsetRemove(this);
+		}
+		main_type = null;
+		if (top_type != null)
+		{
+			top_type.hashsetRemove(this);
+		}
+		top_type = null;
+		cur_tile_type = null;
+		color_array = null;
+		tile_up = null;
+		tile_down = null;
+		tile_left = null;
+		tile_right = null;
+		neighbours = null;
+		neighboursAll = null;
+		road_island = null;
+		world_tile_zone_border = null;
+		region = null;
+		zone = null;
+		chunk = null;
+		UnsafeCollectionPool<List<Actor>, Actor>.Release(_units);
+		_units = null;
+		data = null;
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public override int GetHashCode()
+	{
+		return data.tile_id;
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool Equals(WorldTile pTile)
+	{
+		return data.tile_id == pTile.data.tile_id;
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool reachableFrom(WorldTile pFromTile)
+	{
+		if (isSameIsland(pFromTile))
+		{
+			return true;
+		}
+		return region.island.reachableByCityFrom(pFromTile.region.island);
+	}
+
+	public bool freeze(int pDamage = 1)
+	{
+		if (!canBeFrozen())
+		{
+			return false;
+		}
+		if (building != null && building.isUsable() && building.asset.prevent_freeze)
+		{
+			return false;
+		}
+		data.frozen = true;
+		if (Type.fast_freeze)
+		{
+			for (int i = 0; i < neighbours.Length; i++)
+			{
+				WorldTile worldTile = neighbours[i];
+				if (worldTile.Type.fast_freeze && worldTile.canBeFrozen() && Randy.randomChance(0.35f))
+				{
+					worldTile.freeze(pDamage);
+				}
+			}
+		}
+		health = 10;
+		World.world.setTileDirty(this);
+		if (zone.visible)
+		{
+			World.world.flash_effects.flashPixel(this, 20);
+		}
+		if (Type.chunk_dirty_when_temperature)
+		{
+			MapAction.checkTileState(this, main_type, pForceMapChunk: true);
+			updateStats();
+		}
+		return true;
+	}
+
+	public void unfreeze(int pDamage = 1)
+	{
+		if (!canBeUnFrozen())
+		{
+			return;
+		}
+		if (health > 0)
+		{
+			health -= pDamage;
+			if (health > 0)
+			{
+				return;
+			}
+		}
+		data.frozen = false;
+		health = 10;
+		World.world.setTileDirty(this);
+		if (zone.visible)
+		{
+			World.world.flash_effects.flashPixel(this, 20);
+		}
+		if (Type.chunk_dirty_when_temperature)
+		{
+			MapAction.checkTileState(this, main_type, pForceMapChunk: true);
+			updateStats();
+		}
+		if (!Type.fast_freeze)
+		{
+			return;
+		}
+		for (int i = 0; i < neighbours.Length; i++)
+		{
+			WorldTile worldTile = neighbours[i];
+			if (worldTile.canBeUnFrozen() && Randy.randomChance(0.2f))
+			{
+				worldTile.unfreeze(pDamage);
+			}
+		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public static bool isSameLayer(WorldTile pTile1, WorldTile pTile2)
+	{
+		return pTile1.Type.layer_type == pTile2.Type.layer_type;
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool canBeFrozen()
+	{
+		if (isFrozen())
+		{
+			return false;
+		}
+		return Type.can_be_frozen;
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool canBeUnFrozen()
+	{
+		if (data.frozen && Type.can_be_unfrozen)
+		{
+			return !Type.forever_frozen;
+		}
+		return false;
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool isTemporaryFrozen()
+	{
+		return data.frozen;
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool isFrozen()
+	{
+		if (!data.frozen)
+		{
+			return Type.forever_frozen;
+		}
+		return true;
+	}
+
+	public TileRank getCreepTileRank()
+	{
+		return main_type.creep_rank_type;
+	}
+
+	public bool hasCity()
+	{
+		return zone_city != null;
+	}
+
+	public void tryToBreak()
+	{
+		health = 0;
+		unfreeze(99);
+	}
+
+	public WorldTile getWalkableTileAround(WorldTile pFrom)
+	{
+		foreach (WorldTile item in neighboursAll.LoopRandom())
+		{
+			if (item.isSameIsland(pFrom))
+			{
+				return item;
+			}
+		}
+		return null;
+	}
+
+	public IEnumerable<WorldTile> getTilesAround(int pRadius)
+	{
+		for (int iX = -pRadius; iX <= pRadius; iX++)
+		{
+			for (int iY = -pRadius; iY <= pRadius; iY++)
+			{
+				int pX = x + iX;
+				int pY = y + iY;
+				yield return World.world.GetTile(pX, pY);
+			}
+		}
+	}
+
+	public WorldTile getTileAroundThisOnSameIsland(WorldTile pTileFrom)
+	{
+		foreach (WorldTile item in neighboursAll.LoopRandom())
+		{
+			if (item.isSameIsland(this))
+			{
+				return item;
+			}
+		}
+		return null;
+	}
+
+	public WorldTile getTileAroundThisOnSameIsland(WorldTile pTileFrom, bool pClosest)
+	{
+		if (!pClosest)
+		{
+			return getTileAroundThisOnSameIsland(pTileFrom);
+		}
+		int num = int.MaxValue;
+		WorldTile result = null;
+		WorldTile[] array = neighboursAll;
+		foreach (WorldTile worldTile in array)
+		{
+			int num2 = Toolbox.SquaredDistTile(pTileFrom, worldTile);
+			if (num2 < num && worldTile.isSameIsland(this))
+			{
+				num = num2;
+				result = worldTile;
+			}
+		}
+		return result;
+	}
+
+	public bool isDiagonal(WorldTile pTile)
+	{
+		int num = Math.Abs(pTile.x - x);
+		int num2 = Math.Abs(pTile.y - y);
+		if (num == 1 && num2 == 1)
+		{
+			return true;
+		}
+		return false;
+	}
+
+	public bool isSameCityHere(City pCity)
+	{
+		return zone.isSameCityHere(pCity);
+	}
+
+	public bool isWaterAround()
+	{
+		if (!has_tile_down || !has_tile_up || !has_tile_left || !has_tile_right)
+		{
+			return true;
+		}
+		if (tile_down.Type.liquid || tile_up.Type.liquid || tile_left.Type.liquid || tile_right.Type.liquid)
+		{
+			return true;
+		}
+		return false;
+	}
+
+	public float distanceTo(WorldTile pTile)
+	{
+		return Toolbox.DistTile(this, pTile);
+	}
+
+	public WorldTile getNeighbourTileSameIsland()
+	{
+		foreach (WorldTile item in neighboursAll.LoopRandom())
+		{
+			if (item.isSameIsland(this))
+			{
+				return item;
+			}
+		}
+		return this;
+	}
+}
+// --- End of File: WorldTile.cs ---
+
+
+
+// --- Start of File: WorldTileContainer.cs ---
+public class WorldTileContainer : ObjectContainer<WorldTile>
+{
+}
+// --- End of File: WorldTileContainer.cs ---
+
+
+
+// --- Start of File: WorldTileData.cs ---
+using System;
+using System.ComponentModel;
+
+[Serializable]
+public class WorldTileData
+{
+	public string type;
+
+	public int height;
+
+	[DefaultValue(ConwayType.None)]
+	public ConwayType conwayType = ConwayType.None;
+
+	[NonSerialized]
+	public double fire_timestamp;
+
+	[NonSerialized]
+	public bool frozen;
+
+	public readonly int tile_id;
+
+	public WorldTileData(int pTileID)
+	{
+		tile_id = pTileID;
+		clear();
+	}
+
+	internal void clear()
+	{
+		type = null;
+		height = 0;
+		conwayType = ConwayType.None;
+		fire_timestamp = 0.0;
+		frozen = false;
+	}
+}
+// --- End of File: WorldTileData.cs ---
+
+
+
+// --- Start of File: WorldTileDataStruct.cs ---
+using System;
+
+public readonly struct WorldTileDataStruct : IEquatable<WorldTileDataStruct>
+{
+	public readonly string type;
+
+	public readonly int height;
+
+	public readonly ConwayType conwayType;
+
+	public readonly double fire_timestamp;
+
+	public readonly bool frozen;
+
+	public readonly int tile_id;
+
+	public readonly int x;
+
+	public readonly int y;
+
+	public WorldTileDataStruct(string pType, int pHeight, ConwayType pConwayType, bool pFire, double pFireTimestamp, bool pFrozen, int pTileID, int pX, int pY)
+	{
+		type = pType;
+		height = pHeight;
+		conwayType = pConwayType;
+		fire_timestamp = pFireTimestamp;
+		frozen = pFrozen;
+		tile_id = pTileID;
+		x = pX;
+		y = pY;
+	}
+
+	public WorldTileDataStruct(WorldTile pTile, int pTileID)
+	{
+		WorldTileData data = pTile.data;
+		type = data.type;
+		height = data.height;
+		conwayType = data.conwayType;
+		fire_timestamp = data.fire_timestamp;
+		frozen = data.frozen;
+		tile_id = pTileID;
+		x = pTile.x;
+		y = pTile.y;
+	}
+
+	public bool Equals(WorldTileDataStruct pOther)
+	{
+		return tile_id == pOther.tile_id;
+	}
+
+	public override bool Equals(object pObject)
+	{
+		if (pObject is WorldTileDataStruct pOther)
+		{
+			return Equals(pOther);
+		}
+		return false;
+	}
+
+	public override int GetHashCode()
+	{
+		return tile_id;
+	}
+}
+// --- End of File: WorldTileDataStruct.cs ---
+
+
+
+// --- Start of File: WorldTilemap.cs ---
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using UnityEngine;
+using UnityEngine.Tilemaps;
+
+public class WorldTilemap : BaseMapObject
+{
+	private const int EMPTY_Z = -1000;
+
+	public static readonly Vector3Int EMPTY_TILE_POS = new Vector3Int(-1, -1, -1000);
+
+	private Dictionary<int, TilemapExtended> _layers;
+
+	[SerializeField]
+	private TilemapExtended _prefab_tilemap_layer;
+
+	[SerializeField]
+	private Material _water_rims_material;
+
+	private TileType _asset_border_water_outline;
+
+	private TileType _asset_border_water_runup;
+
+	private TileType _asset_border_pit;
+
+	private TilemapExtended _layer_border_water_runup;
+
+	private TilemapExtended _layer_water_outline;
+
+	private readonly HashSet<TileZone> _dirty_zones = new HashSet<TileZone>();
+
+	private readonly List<TileZone> _clear_list_zones = new List<TileZone>();
+
+	private HashSet<WorldTile>[] _tiles_by_zone;
+
+	private readonly Color _color_border_water_runup_default = Toolbox.makeColor("#DDFCFF", 0.7f);
+
+	private float _color_water_runup_alpha_current = 0.4f;
+
+	private float _color_water_runup_timer;
+
+	private bool _color_water_runup_state_fade_in = true;
+
+	private const float WATER_RUNUP_INTERVAL = 0.01f;
+
+	private const float WATER_RUNUP_SPEED_CHANGE = 0.6f;
+
+	private const float COLOR_WATER_RUNUP_ALPHA_BOUND_MIN = 0.02f;
+
+	private const float COLOR_WATER_RUNUP_ALPHA_BOUND_M = 0.7f;
+
+	internal override void create()
+	{
+		base.create();
+		_layers = new Dictionary<int, TilemapExtended>();
+		_asset_border_water_outline = AssetManager.tiles.get("border_water");
+		_asset_border_water_runup = AssetManager.tiles.get("border_water_runup");
+		_asset_border_pit = AssetManager.tiles.get("border_pit");
+		for (int i = 0; i < AssetManager.tiles.list.Count; i++)
+		{
+			TileTypeBase pTileBase = AssetManager.tiles.list[i];
+			createTileMapFor(pTileBase);
+		}
+		for (int j = 0; j < AssetManager.top_tiles.list.Count; j++)
+		{
+			TileTypeBase pTileBase2 = AssetManager.top_tiles.list[j];
+			createTileMapFor(pTileBase2);
+		}
+		_layer_border_water_runup = _layers[_asset_border_water_runup.render_z];
+		_layer_water_outline = _layers[_asset_border_water_outline.render_z];
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool needsRedraw(WorldTile pTile)
+	{
+		if (pTile.last_rendered_tile_type == pTile.Type)
+		{
+			return false;
+		}
+		return true;
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void addToQueueToRedraw(WorldTile pTile)
+	{
+		TileZone zone = pTile.zone;
+		_dirty_zones.Add(zone);
+		_tiles_by_zone[zone.id].Add(pTile);
+	}
+
+	private void createTileMapFor(TileTypeBase pTileBase)
+	{
+		if (!_layers.ContainsKey(pTileBase.render_z))
+		{
+			TilemapExtended tilemapExtended = Object.Instantiate<TilemapExtended>(_prefab_tilemap_layer, ((Component)this).transform);
+			tilemapExtended.create(pTileBase);
+			if (pTileBase.id == "border_water_runup")
+			{
+				((Renderer)((Component)tilemapExtended).GetComponent<TilemapRenderer>()).sharedMaterial = _water_rims_material;
+			}
+			_layers.Add(pTileBase.render_z, tilemapExtended);
+		}
+	}
+
+	public override void update(float pElapsed)
+	{
+		base.update(pElapsed);
+		if (!World.world.isPaused())
+		{
+			updateWaterRunup(Time.deltaTime);
+		}
+	}
+
+	private void updateWaterRunup(float pElapsed)
+	{
+		//IL_00a7: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00ac: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00b2: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00b8: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00bd: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00d1: Unknown result type (might be due to invalid IL or missing references)
+		if (_color_water_runup_timer > 0f)
+		{
+			_color_water_runup_timer -= pElapsed;
+			return;
+		}
+		_color_water_runup_timer = 0.01f;
+		if (_color_water_runup_state_fade_in)
+		{
+			_color_water_runup_alpha_current += pElapsed * 0.6f;
+			if (_color_water_runup_alpha_current >= 0.7f)
+			{
+				_color_water_runup_alpha_current = 0.7f;
+				_color_water_runup_state_fade_in = false;
+			}
+		}
+		else
+		{
+			_color_water_runup_alpha_current -= pElapsed * 0.6f;
+			if (_color_water_runup_alpha_current <= 0.02f)
+			{
+				_color_water_runup_alpha_current = 0.02f;
+				_color_water_runup_state_fade_in = true;
+			}
+		}
+		float nightMod = World.world.era_manager.getNightMod();
+		Color color = Toolbox.blendColor(Color32.op_Implicit(Toolbox.color_night), _color_border_water_runup_default, nightMod);
+		color.a = _color_water_runup_alpha_current;
+		_water_rims_material.color = color;
+	}
+
+	internal void clear()
+	{
+		if (_tiles_by_zone != null)
+		{
+			HashSet<WorldTile>[] tiles_by_zone = _tiles_by_zone;
+			for (int i = 0; i < tiles_by_zone.Length; i++)
+			{
+				tiles_by_zone[i].Clear();
+			}
+		}
+		_dirty_zones.Clear();
+		_clear_list_zones.Clear();
+		foreach (TilemapExtended value in _layers.Values)
+		{
+			value.clear();
+		}
+	}
+
+	internal void generate(int pCount)
+	{
+		_tiles_by_zone = new HashSet<WorldTile>[pCount];
+		for (int i = 0; i < pCount; i++)
+		{
+			_tiles_by_zone[i] = new HashSet<WorldTile>(64);
+		}
+	}
+
+	private void prepareToDraw()
+	{
+		foreach (TilemapExtended value in _layers.Values)
+		{
+			value.prepareDraw();
+		}
+	}
+
+	internal void redrawTiles(bool pForceAll = false)
+	{
+		if (_dirty_zones.Count == 0 || !(MapBox.isRenderGameplay() || pForceAll))
+		{
+			return;
+		}
+		prepareToDraw();
+		if (pForceAll)
+		{
+			foreach (TileZone dirty_zone in _dirty_zones)
+			{
+				checkZoneToRender(dirty_zone);
+			}
+		}
+		else
+		{
+			List<TileZone> visibleZones = World.world.zone_camera.getVisibleZones();
+			for (int i = 0; i < visibleZones.Count; i++)
+			{
+				TileZone pZone = visibleZones[i];
+				checkZoneToRender(pZone);
+			}
+		}
+		if (pForceAll)
+		{
+			_clear_list_zones.Clear();
+			_dirty_zones.Clear();
+		}
+		redrawAllLayers();
+		drawFinish();
+	}
+
+	private void drawFinish()
+	{
+		_dirty_zones.ExceptWith(_clear_list_zones);
+		_clear_list_zones.Clear();
+	}
+
+	private void redrawAllLayers()
+	{
+		foreach (TilemapExtended value in _layers.Values)
+		{
+			value.redraw();
+		}
+	}
+
+	private void checkZoneToRender(TileZone pZone)
+	{
+		if (!_dirty_zones.Contains(pZone))
+		{
+			return;
+		}
+		HashSet<WorldTile> hashSet = _tiles_by_zone[pZone.id];
+		foreach (WorldTile item in hashSet)
+		{
+			renderTile(item);
+		}
+		_clear_list_zones.Add(pZone);
+		hashSet.Clear();
+	}
+
+	private void renderTile(WorldTile pTile)
+	{
+		//IL_0020: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0025: Unknown result type (might be due to invalid IL or missing references)
+		//IL_002f: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0034: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0044: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0049: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00b4: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00be: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00bf: Unknown result type (might be due to invalid IL or missing references)
+		//IL_007e: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0087: Unknown result type (might be due to invalid IL or missing references)
+		//IL_008c: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00c5: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00ca: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00ec: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00f6: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00fb: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0107: Unknown result type (might be due to invalid IL or missing references)
+		//IL_019c: Unknown result type (might be due to invalid IL or missing references)
+		//IL_01a1: Unknown result type (might be due to invalid IL or missing references)
+		//IL_01b8: Unknown result type (might be due to invalid IL or missing references)
+		//IL_01cc: Unknown result type (might be due to invalid IL or missing references)
+		//IL_01cd: Unknown result type (might be due to invalid IL or missing references)
+		//IL_01dd: Unknown result type (might be due to invalid IL or missing references)
+		TileTypeBase tileTypeBase = pTile.main_type;
+		if (pTile.Type != null)
+		{
+			tileTypeBase = pTile.Type;
+		}
+		int render_z = tileTypeBase.render_z;
+		Vector2Int pos = pTile.pos;
+		int x = ((Vector2Int)(ref pos)).x;
+		pos = pTile.pos;
+		Vector3Int val = default(Vector3Int);
+		((Vector3Int)(ref val))._002Ector(x, ((Vector2Int)(ref pos)).y, render_z);
+		Vector3Int last_rendered_pos_tile = pTile.last_rendered_pos_tile;
+		int z = ((Vector3Int)(ref last_rendered_pos_tile)).z;
+		if (((Vector3Int)(ref val)).z != z || pTile.last_rendered_tile_type != tileTypeBase)
+		{
+			if (z != -1000)
+			{
+				_layers[z].addToQueueToRedraw(pTile, last_rendered_pos_tile, null);
+				pTile.last_rendered_pos_tile = EMPTY_TILE_POS;
+			}
+			pTile.last_rendered_tile_type = tileTypeBase;
+			_layers[((Vector3Int)(ref val)).z].addToQueueToRedraw(pTileGraphics: (TileBase)(object)getVariation(pTile), pWorldTile: pTile, pPosition: val);
+			pTile.last_rendered_pos_tile = val;
+		}
+		Vector3Int last_rendered_border_pos_ocean = pTile.last_rendered_border_pos_ocean;
+		int z2 = ((Vector3Int)(ref last_rendered_border_pos_ocean)).z;
+		if (z2 != -1000)
+		{
+			_layers[z2].addToQueueToRedraw(pTile, last_rendered_border_pos_ocean, null);
+			pTile.last_rendered_border_pos_ocean = EMPTY_TILE_POS;
+			_layer_border_water_runup.addToQueueToRedraw(pTile, last_rendered_pos_tile, null, pSkipCheck: true);
+		}
+		if ((!pTile.main_type.ground && !pTile.main_type.block) || pTile.main_type.can_be_filled_with_ocean)
+		{
+			return;
+		}
+		TileType tileType = null;
+		bool flag = false;
+		if (pTile.has_tile_down && pTile.tile_down.main_type.can_be_filled_with_ocean)
+		{
+			tileType = _asset_border_pit;
+			render_z = tileType.render_z;
+		}
+		else if (pTile.isWaterAround())
+		{
+			tileType = _asset_border_water_outline;
+			render_z = tileType.render_z;
+			flag = true;
+		}
+		if (tileType != null)
+		{
+			TilemapExtended tilemapExtended = _layers[render_z];
+			pos = pTile.pos;
+			((Vector3Int)(ref val)).y = ((Vector2Int)(ref pos)).y;
+			((Vector3Int)(ref val)).z = render_z;
+			tilemapExtended.addToQueueToRedraw(pTile, val, (TileBase)(object)tileType.sprites.main);
+			pTile.last_rendered_border_pos_ocean = val;
+			if (flag)
+			{
+				_layer_border_water_runup.addToQueueToRedraw(pTile, val, (TileBase)(object)_asset_border_water_runup.sprites.main, pSkipCheck: true);
+			}
+		}
+	}
+
+	internal void enableTiles(bool pValue)
+	{
+		if (((Component)this).gameObject.activeSelf != pValue)
+		{
+			((Component)this).gameObject.SetActive(pValue);
+		}
+	}
+
+	private Tile getVariation(WorldTile pTile)
+	{
+		TileSprites sprites = pTile.main_type.sprites;
+		if (pTile.Type != null)
+		{
+			sprites = pTile.Type.sprites;
+		}
+		if (pTile.Type.force_edge_variation && pTile.has_tile_up && pTile.tile_up.Type != pTile.Type)
+		{
+			return pTile.Type.sprites.getVariation(pTile.Type.force_edge_variation_frame);
+		}
+		return sprites.getRandom();
+	}
+
+	internal void debug(DebugTool pTool)
+	{
+		pTool.setText("_dirty_zones", _dirty_zones.Count, 0f, pShowBar: false, 0L);
+		pTool.setText("_clear_list_zones", _clear_list_zones.Count, 0f, pShowBar: false, 0L);
+	}
+
+	public void checkEnableForWaterRunups(bool pIsLowRes)
+	{
+		if (pIsLowRes)
+		{
+			if (((Component)_layer_border_water_runup).gameObject.activeSelf)
+			{
+				((Component)_layer_border_water_runup).gameObject.SetActive(false);
+				((Component)_layer_water_outline).gameObject.SetActive(false);
+			}
+		}
+		else if (!((Component)_layer_border_water_runup).gameObject.activeSelf)
+		{
+			((Component)_layer_border_water_runup).gameObject.SetActive(true);
+			((Component)_layer_water_outline).gameObject.SetActive(true);
+		}
+	}
+}
+// --- End of File: WorldTilemap.cs ---
+
+
+
+// --- Start of File: WorldTileZoneBorder.cs ---
+public class WorldTileZoneBorder
+{
+	internal bool corner_l_u;
+
+	internal bool corner_l_d;
+
+	internal bool corner_r_d;
+
+	internal bool corner_r_u;
+
+	internal bool border_up;
+
+	internal bool border_left;
+
+	internal bool border_right;
+
+	internal bool border_down;
+
+	internal bool border;
+
+	internal void reset()
+	{
+	}
+}
+// --- End of File: WorldTileZoneBorder.cs ---
+
+
+
+// --- Start of File: WorldTimer.cs ---
+using System;
+using UnityEngine;
+
+public class WorldTimer
+{
+	public bool isActive;
+
+	private bool isStopWatch;
+
+	private Action callback;
+
+	private float interval;
+
+	internal float timer;
+
+	public WorldTimer(float pInterval, Action pCallback)
+	{
+		interval = pInterval;
+		callback = pCallback;
+		timer = interval;
+	}
+
+	public void setTime(float pNewTime)
+	{
+		timer = pNewTime;
+	}
+
+	internal void setInterval(float pInterval)
+	{
+		interval = pInterval;
+	}
+
+	public WorldTimer(float pInterval, bool pStopWatch)
+	{
+		isStopWatch = pStopWatch;
+		interval = pInterval;
+		timer = 0f;
+		isActive = false;
+	}
+
+	public void startTimer(float pRate = -1f)
+	{
+		if (pRate != -1f)
+		{
+			interval = pRate;
+		}
+		timer = interval;
+	}
+
+	public void stop()
+	{
+		isActive = false;
+	}
+
+	public void update(float pElapsed = -1f)
+	{
+		if (pElapsed == -1f)
+		{
+			pElapsed = Time.deltaTime;
+		}
+		if (isStopWatch)
+		{
+			if (timer > 0f)
+			{
+				timer -= pElapsed;
+				isActive = true;
+			}
+			else
+			{
+				isActive = false;
+			}
+		}
+		else if (timer > 0f)
+		{
+			timer -= pElapsed;
+		}
+		else
+		{
+			timer = interval;
+			callback();
+		}
+	}
+}
+// --- End of File: WorldTimer.cs ---
+
+
+
+// --- Start of File: WorldTimeScaleAsset.cs ---
+using System;
+using System.ComponentModel;
+
+[Serializable]
+public class WorldTimeScaleAsset : Asset, ILocalizedAsset
+{
+	public float multiplier;
+
+	[DefaultValue(1)]
+	public int ticks = 1;
+
+	public int conway_ticks;
+
+	public bool sonic;
+
+	public bool render_skip;
+
+	public string path_icon;
+
+	public string locale_key;
+
+	public string getLocaleID()
+	{
+		return locale_key;
+	}
+
+	public WorldTimeScaleAsset getNext(bool pCycle = false)
+	{
+		int num = AssetManager.time_scales.list.Count - 2;
+		if (DebugConfig.debug_enabled)
+		{
+			num = AssetManager.time_scales.list.Count - 1;
+		}
+		int num2 = AssetManager.time_scales.list.IndexOf(this);
+		if (++num2 > num)
+		{
+			if (!pCycle)
+			{
+				return this;
+			}
+			num2 = 0;
+		}
+		return AssetManager.time_scales.list[num2];
+	}
+
+	public WorldTimeScaleAsset getPrevious(bool pCycle = false)
+	{
+		int num = AssetManager.time_scales.list.IndexOf(this);
+		if (--num < 0)
+		{
+			if (!pCycle)
+			{
+				return this;
+			}
+			num = AssetManager.time_scales.list.Count - 1;
+		}
+		return AssetManager.time_scales.list[num];
+	}
+}
+// --- End of File: WorldTimeScaleAsset.cs ---
+
+
+
+// --- Start of File: WorldTimeScaleLibrary.cs ---
+public class WorldTimeScaleLibrary : AssetLibrary<WorldTimeScaleAsset>
+{
+	public override void init()
+	{
+		add(new WorldTimeScaleAsset
+		{
+			id = "slow_mo",
+			locale_key = "speed_slow_mo",
+			multiplier = 0.5f,
+			ticks = 1,
+			conway_ticks = 1,
+			path_icon = "ui/Icons/iconClockX0.5"
+		});
+		add(new WorldTimeScaleAsset
+		{
+			id = "x1",
+			locale_key = "speed_x1",
+			multiplier = 1f,
+			ticks = 1,
+			conway_ticks = 1,
+			path_icon = "ui/Icons/iconClockX1"
+		});
+		add(new WorldTimeScaleAsset
+		{
+			id = "x2",
+			locale_key = "speed_x2",
+			multiplier = 2f,
+			ticks = 1,
+			conway_ticks = 2,
+			path_icon = "ui/Icons/iconClockX2"
+		});
+		add(new WorldTimeScaleAsset
+		{
+			id = "x3",
+			locale_key = "speed_x3",
+			multiplier = 3f,
+			ticks = 1,
+			conway_ticks = 3,
+			path_icon = "ui/Icons/iconClockX3"
+		});
+		add(new WorldTimeScaleAsset
+		{
+			id = "x4",
+			locale_key = "speed_x4",
+			multiplier = 4f,
+			ticks = 1,
+			conway_ticks = 4,
+			path_icon = "ui/Icons/iconClockX4"
+		});
+		add(new WorldTimeScaleAsset
+		{
+			id = "x5",
+			locale_key = "speed_x5",
+			multiplier = 5f,
+			ticks = 1,
+			conway_ticks = 5,
+			path_icon = "ui/Icons/iconClockX5"
+		});
+		add(new WorldTimeScaleAsset
+		{
+			id = "x10",
+			locale_key = "speed_x10",
+			multiplier = 10f,
+			ticks = 1,
+			conway_ticks = 10,
+			path_icon = "ui/Icons/iconClockX5"
+		});
+		add(new WorldTimeScaleAsset
+		{
+			id = "x15",
+			locale_key = "speed_x15",
+			multiplier = 15f,
+			ticks = 1,
+			conway_ticks = 15,
+			path_icon = "ui/Icons/iconClockX5"
+		});
+		add(new WorldTimeScaleAsset
+		{
+			id = "x20",
+			locale_key = "speed_x20",
+			multiplier = 20f,
+			ticks = 1,
+			conway_ticks = 20,
+			path_icon = "ui/Icons/iconClockX5"
+		});
+		add(new WorldTimeScaleAsset
+		{
+			id = "x40",
+			locale_key = "speed_x40",
+			multiplier = 20f,
+			sonic = true,
+			ticks = 2,
+			conway_ticks = 40,
+			path_icon = "ui/Icons/iconClockXSonic"
+		});
+	}
+
+	public override void editorDiagnosticLocales()
+	{
+		base.editorDiagnosticLocales();
+		foreach (WorldTimeScaleAsset item in list)
+		{
+			checkLocale(item, item.getLocaleID());
+		}
+	}
+}
+// --- End of File: WorldTimeScaleLibrary.cs ---
+
+
+
+// --- Start of File: WorldTip.cs ---
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+
+public class WorldTip : MonoBehaviour
+{
+	public Transform transform_toolbar;
+
+	public Transform transform_main;
+
+	public Transform transform_positionTop;
+
+	public static WorldTip instance;
+
+	public Canvas canvas;
+
+	public Text text;
+
+	public TipStatus status;
+
+	public CanvasGroup canvasGroup;
+
+	private float timeout;
+
+	private float scale = 1f;
+
+	public static Dictionary<string, string> replacementDict;
+
+	private void Awake()
+	{
+		status = TipStatus.Hidden;
+		canvasGroup.alpha = 0f;
+		instance = this;
+	}
+
+	public void show(string pText, bool pTranslate = true, string pPosition = "center", float pTime = 3f, string pColor = "#F3961F")
+	{
+		//IL_001a: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00c5: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00fe: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00e9: Unknown result type (might be due to invalid IL or missing references)
+		if ((Object)(object)instance == (Object)null)
+		{
+			return;
+		}
+		((Graphic)instance.text).color = Toolbox.makeColor(pColor);
+		if (pTranslate)
+		{
+			instance.text.text = LocalizedTextManager.getText(pText);
+			if (replacementDict != null)
+			{
+				instance.text.text = replaceWords(instance.text.text);
+			}
+			((Component)instance.text).GetComponent<LocalizedText>().checkSpecialLanguages();
+		}
+		else
+		{
+			instance.text.text = pText;
+		}
+		updateTextWidth();
+		((Component)this).transform.SetParent(transform_main);
+		instance.startShow(pTime);
+		if (pPosition == "center")
+		{
+			((Component)this).transform.position = Vector3.zero;
+		}
+		else if (pPosition == "top")
+		{
+			((Component)this).transform.position = transform_positionTop.position;
+		}
+		else
+		{
+			((Component)instance).transform.position = Input.mousePosition;
+		}
+	}
+
+	public static void showNowCenter(string pText)
+	{
+		showNow(pText);
+	}
+
+	public static void showNowTop(string pText, bool pTranslate = true)
+	{
+		showNow(pText, pTranslate, "top");
+	}
+
+	public static void addWordReplacement(string key, string value)
+	{
+		if (replacementDict == null)
+		{
+			replacementDict = new Dictionary<string, string>();
+		}
+		replacementDict[key] = value;
+	}
+
+	public static string replaceWords(string text)
+	{
+		foreach (string key in replacementDict.Keys)
+		{
+			text = text.Replace(key, replacementDict[key]);
+		}
+		replacementDict = null;
+		return text;
+	}
+
+	public static void showNow(string pText, bool pTranslate = true, string pPosition = "center", float pTime = 3f, string pColor = "#F3961F")
+	{
+		if (!((Object)(object)instance == (Object)null))
+		{
+			instance.show(pText, pTranslate, pPosition, pTime, pColor);
+		}
+	}
+
+	public void showToolbarText(string pText)
+	{
+		//IL_003f: Unknown result type (might be due to invalid IL or missing references)
+		text.text = pText;
+		LocalizedText localizedText = default(LocalizedText);
+		if (((Component)text).TryGetComponent<LocalizedText>(ref localizedText))
+		{
+			localizedText.checkSpecialLanguages();
+		}
+		updateTextWidth();
+		startShow();
+		((Component)this).transform.position = transform_toolbar.position;
+	}
+
+	public void showToolbarText(GodPower pPower, bool pShowOnComputer = true)
+	{
+		if (pShowOnComputer || !Config.isComputer)
+		{
+			string localizedName;
+			string localizedDescription;
+			if (pPower.type == PowerActionType.PowerSpawnActor)
+			{
+				ActorAsset actorAsset = pPower.getActorAsset();
+				localizedName = actorAsset.getLocalizedName();
+				localizedDescription = actorAsset.getLocalizedDescription();
+			}
+			else
+			{
+				localizedName = LocalizedTextManager.getText(pPower.getLocaleID());
+				localizedDescription = LocalizedTextManager.getText(pPower.getDescriptionID());
+			}
+			showToolbarText(localizedName, localizedDescription, pShowOnComputer);
+		}
+	}
+
+	public void showToolbarText(string pTextMain, string pTextDescription, bool pShowOnComputer = true)
+	{
+		//IL_0055: Unknown result type (might be due to invalid IL or missing references)
+		if (pShowOnComputer || !Config.isComputer)
+		{
+			text.text = pTextMain + "\n" + pTextDescription;
+			LocalizedText localizedText = default(LocalizedText);
+			if (((Component)text).TryGetComponent<LocalizedText>(ref localizedText))
+			{
+				localizedText.checkSpecialLanguages();
+			}
+			updateTextWidth();
+			startShow();
+			((Component)this).transform.position = transform_toolbar.position;
+		}
+	}
+
+	public void setText(string pText, bool pAddSKip = false)
+	{
+		//IL_0059: Unknown result type (might be due to invalid IL or missing references)
+		text.text = LocalizedTextManager.getText(pText);
+		((Component)text).GetComponent<LocalizedText>().checkSpecialLanguages();
+		if (pAddSKip)
+		{
+			text.text = "\n" + text.text;
+		}
+		updateTextWidth();
+		((Component)this).transform.position = transform_toolbar.position;
+		startShow();
+	}
+
+	private void updateTextWidth()
+	{
+	}
+
+	private void startShow(float pTime = 3f)
+	{
+		status = TipStatus.Shown;
+		timeout = pTime;
+		scale = 1.5f;
+	}
+
+	public static void hideNow()
+	{
+		if (!((Object)(object)instance == (Object)null) && ((Component)instance).gameObject.activeSelf)
+		{
+			instance.startHide();
+		}
+	}
+
+	internal void startHide()
+	{
+		status = TipStatus.Hidden;
+		timeout = 0f;
+	}
+
+	private void Update()
+	{
+		//IL_0054: Unknown result type (might be due to invalid IL or missing references)
+		if (scale > 1f)
+		{
+			scale -= Time.deltaTime * 3f;
+			if (scale < 1f)
+			{
+				scale = 1f;
+			}
+			((Component)this).transform.localScale = new Vector3(scale, scale, 1f);
+		}
+		switch (status)
+		{
+		case TipStatus.Hidden:
+			if (canvasGroup.alpha > 0f)
+			{
+				CanvasGroup obj2 = canvasGroup;
+				obj2.alpha -= Time.deltaTime * 2f;
+			}
+			break;
+		case TipStatus.Shown:
+			if (canvasGroup.alpha < 1f)
+			{
+				CanvasGroup obj = canvasGroup;
+				obj.alpha += Time.deltaTime * 3f;
+			}
+			if (canvasGroup.alpha == 1f)
+			{
+				timeout -= Time.deltaTime;
+				if (timeout <= 0f)
+				{
+					startHide();
+				}
+			}
+			break;
+		}
+	}
+}
+// --- End of File: WorldTip.cs ---
+
+
+
+// --- Start of File: WorldWindow.cs ---
+using System.Collections.Generic;
+
+public class WorldWindow : TabbedWindow, IInterestingPeopleWindow
+{
+	public NameInput nameInput;
+
+	public InterestingPeopleTab interesting_people;
+
+	protected override void create()
+	{
+		base.create();
+		nameInput.addListener(applyInputName);
+	}
+
+	private void applyInputName(string pInput)
+	{
+		if (!string.IsNullOrEmpty(pInput))
+		{
+			World.world.map_stats.name = pInput;
+		}
+	}
+
+	private void OnEnable()
+	{
+		if (World.world.map_stats != null)
+		{
+			nameInput.setText(World.world.map_stats.name);
+		}
+	}
+
+	public IEnumerable<Actor> getInterestingUnitsList()
+	{
+		return World.world.units;
+	}
+}
+// --- End of File: WorldWindow.cs ---
+
+
+
+// --- Start of File: XtwitterText.cs ---
+using DG.Tweening;
+using UnityEngine;
+using UnityEngine.UI;
+
+public class XtwitterText : MonoBehaviour
+{
+	private Text _text;
+
+	private string[] _strings = new string[6] { "Twitter", "Xwitter", "??", "X?", "X??", "X???" };
+
+	private int _index;
+
+	private float _timer = 2f;
+
+	private const int INTERVAL = 2;
+
+	private Tweener _current_tween;
+
+	private void Awake()
+	{
+		_text = ((Component)this).GetComponent<Text>();
+	}
+
+	private void Update()
+	{
+		//IL_006e: Unknown result type (might be due to invalid IL or missing references)
+		_timer -= Time.deltaTime;
+		if (_timer <= 0f)
+		{
+			_timer = 2f;
+			_text.text = _strings[_index];
+			_index = (_index + 1) % _strings.Length;
+			ShortcutExtensions.DOPunchScale(((Component)this).transform, new Vector3(0.2f, 0.2f, 0.2f), 0.3f, 10, 1f);
+		}
+	}
+}
+// --- End of File: XtwitterText.cs ---
+
+
+
+// --- Start of File: ZoneCalculator.cs ---
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using UnityEngine;
+
+public class ZoneCalculator : MapLayer
+{
+	public readonly List<TileZone> zones = new List<TileZone>();
+
+	private readonly Dictionary<int, TileZone> _zones_dict_id = new Dictionary<int, TileZone>();
+
+	internal TileZone[,] map;
+
+	private bool _dirty;
+
+	private int _last_zone_state = -1;
+
+	public float outline_animation;
+
+	private bool _outline_animation_in;
+
+	private float _cached_map_opacity;
+
+	private bool _cached_ony_favorited_meta;
+
+	private bool _cached_check_animation;
+
+	private bool _cached_should_be_clear_color;
+
+	private bool _last_should_be_clear_color;
+
+	private Kingdom _last_selected_kingdom;
+
+	public int zones_total_x;
+
+	public int zones_total_y;
+
+	private const float ALPHA_NON_FAVORITED_META = 0.5f;
+
+	private const float ALPHA_NON_SELECTED_META = 0.6f;
+
+	public Color color1 = Color.gray;
+
+	public Color color2 = Color.white;
+
+	private readonly Color32 _color_clear = new Color32(byte.MaxValue, byte.MaxValue, byte.MaxValue, (byte)0);
+
+	private readonly HashSetTileZone _to_clean_up = new HashSetTileZone();
+
+	private float _night_multiplier = 1f;
+
+	private int _debug_redrawn_last;
+
+	private float _redraw_timer;
+
+	private bool _dirty_draw_zones;
+
+	public float minimap_opacity = 1f;
+
+	public float border_brightness = 1f;
+
+	private MetaTypeAsset _mode_asset;
+
+	private bool _selection_changed_dirty;
+
+	private NanoObject _cursor_nano_object;
+
+	private NanoObject _selected_nano_object;
+
+	private readonly HashSetTileZone _current_drawn_zones = new HashSetTileZone();
+
+	private int _debug_redrawn_last_amount;
+
+	internal override void create()
+	{
+		//IL_001b: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0020: Unknown result type (might be due to invalid IL or missing references)
+		//IL_002b: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0030: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0043: Unknown result type (might be due to invalid IL or missing references)
+		base.create();
+		colorValues = new Color(1f, 0.46f, 0.19f, 1f);
+		Color color = sprRnd.color;
+		color.a = 0.78f;
+		sprRnd.color = color;
+	}
+
+	public void clearDebug()
+	{
+		if (DebugConfig.isOn(DebugOption.DebugZones))
+		{
+			for (int i = 0; i < zones.Count; i++)
+			{
+				zones[i].clearDebug();
+			}
+		}
+	}
+
+	internal override void clear()
+	{
+		base.clear();
+		for (int i = 0; i < zones.Count; i++)
+		{
+			zones[i].clear();
+		}
+		_current_drawn_zones.Clear();
+		_to_clean_up.Clear();
+		_last_selected_kingdom = null;
+	}
+
+	public void clean()
+	{
+		foreach (TileZone zone in zones)
+		{
+			zone.Dispose();
+		}
+		zones.Clear();
+		_zones_dict_id.Clear();
+		map = null;
+	}
+
+	public void generate()
+	{
+		//IL_008f: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0094: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0080: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0085: Unknown result type (might be due to invalid IL or missing references)
+		zones.Clear();
+		_zones_dict_id.Clear();
+		int num = 8;
+		zones_total_x = Config.ZONE_AMOUNT_X * num;
+		zones_total_y = Config.ZONE_AMOUNT_Y * num;
+		map = new TileZone[zones_total_x, zones_total_y];
+		int num2 = 0;
+		for (int i = 0; i < zones_total_y; i++)
+		{
+			for (int j = 0; j < zones_total_x; j++)
+			{
+				TileZone tileZone = new TileZone
+				{
+					x = j,
+					y = i,
+					id = num2++
+				};
+				if ((j + i) % 2 == 0)
+				{
+					tileZone.debug_zone_color = color1;
+				}
+				else
+				{
+					tileZone.debug_zone_color = color2;
+				}
+				map[j, i] = tileZone;
+				zones.Add(tileZone);
+				_zones_dict_id.Add(tileZone.id, tileZone);
+				fillZone(tileZone);
+			}
+		}
+		World.world.tilemap.generate(zones.Count);
+		generateNeighbours();
+		zones.Shuffle();
+	}
+
+	public TileZone getZoneByID(int pID)
+	{
+		return _zones_dict_id[pID];
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public TileZone getZone(int pX, int pY)
+	{
+		if (pX < 0 || pX >= zones_total_x || pY < 0 || pY >= zones_total_y)
+		{
+			return null;
+		}
+		return map[pX, pY];
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public TileZone getZoneUnsafe(int pX, int pY)
+	{
+		return map[pX, pY];
+	}
+
+	private void generateNeighbours()
+	{
+		using ListPool<TileZone> listPool = new ListPool<TileZone>(4);
+		using ListPool<TileZone> listPool2 = new ListPool<TileZone>(8);
+		List<TileZone> list = zones;
+		int count = list.Count;
+		for (int i = 0; i < count; i++)
+		{
+			TileZone tileZone = list[i];
+			TileZone zone = getZone(tileZone.x - 1, tileZone.y);
+			tileZone.addNeighbour(zone, TileDirection.Left, listPool, listPool2);
+			zone = getZone(tileZone.x + 1, tileZone.y);
+			tileZone.addNeighbour(zone, TileDirection.Right, listPool, listPool2);
+			zone = getZone(tileZone.x, tileZone.y - 1);
+			tileZone.addNeighbour(zone, TileDirection.Down, listPool, listPool2);
+			zone = getZone(tileZone.x, tileZone.y + 1);
+			tileZone.addNeighbour(zone, TileDirection.Up, listPool, listPool2);
+			zone = getZone(tileZone.x - 1, tileZone.y - 1);
+			tileZone.addNeighbour(zone, TileDirection.Null, listPool, listPool2, pDiagonal: true);
+			zone = getZone(tileZone.x - 1, tileZone.y + 1);
+			tileZone.addNeighbour(zone, TileDirection.Null, listPool, listPool2, pDiagonal: true);
+			zone = getZone(tileZone.x + 1, tileZone.y - 1);
+			tileZone.addNeighbour(zone, TileDirection.Null, listPool, listPool2, pDiagonal: true);
+			zone = getZone(tileZone.x + 1, tileZone.y + 1);
+			tileZone.addNeighbour(zone, TileDirection.Null, listPool, listPool2, pDiagonal: true);
+			tileZone.neighbours = listPool.ToArray();
+			tileZone.neighbours_all = listPool2.ToArray();
+			listPool.Clear();
+			listPool2.Clear();
+		}
+	}
+
+	private void fillZone(TileZone pZone)
+	{
+		int num = pZone.x * 8;
+		int num2 = pZone.y * 8;
+		int num3 = 4;
+		for (int i = 0; i < 8; i++)
+		{
+			for (int j = 0; j < 8; j++)
+			{
+				WorldTile tile = World.world.GetTile(i + num, j + num2);
+				if (tile != null)
+				{
+					tile.zone = pZone;
+					pZone.addTile(tile, i, j);
+					if (i == num3 && j == num3)
+					{
+						pZone.centerTile = tile;
+					}
+				}
+			}
+		}
+	}
+
+	private void updateOutlineAnimation(float pElapsed)
+	{
+		if (_selected_nano_object == null && _cursor_nano_object == null)
+		{
+			_outline_animation_in = true;
+			outline_animation = 0f;
+		}
+		else if (_outline_animation_in)
+		{
+			outline_animation += pElapsed * 2f;
+			if (outline_animation >= 1f)
+			{
+				outline_animation = 1f;
+				_outline_animation_in = false;
+			}
+		}
+		else
+		{
+			outline_animation -= pElapsed * 2f;
+			if (outline_animation <= 0f)
+			{
+				outline_animation = 0f;
+				_outline_animation_in = true;
+			}
+		}
+	}
+
+	public void updateAnimationsAndSelections()
+	{
+		//IL_00df: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00e4: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0183: Unknown result type (might be due to invalid IL or missing references)
+		_cached_map_opacity = getMapOpacity();
+		_cached_ony_favorited_meta = PlayerConfig.optionBoolEnabled("only_favorited_meta");
+		_cached_check_animation = !ScrollWindow.isWindowActive() && (!_cursor_nano_object.isRekt() || !_selected_nano_object.isRekt());
+		_cached_should_be_clear_color = shouldBeClearColor();
+		checkCursorNanoObject();
+		checkSelectedNanoObject();
+		updateOutlineAnimation(World.world.delta_time);
+		MetaTypeAsset cachedMapMetaAsset = World.world.getCachedMapMetaAsset();
+		int last_zone_state = cachedMapMetaAsset?.getZoneOptionState() ?? (-1);
+		checkClearAllZonesToRedraw();
+		checkDrawnZonesDirty();
+		_last_should_be_clear_color = _cached_should_be_clear_color;
+		bool flag = Zones.showMapBorders();
+		if (cachedMapMetaAsset != null && flag)
+		{
+			((Renderer)sprRnd).enabled = true;
+			setMode(cachedMapMetaAsset);
+			_last_zone_state = last_zone_state;
+		}
+		else
+		{
+			setMode(null);
+			((Renderer)sprRnd).enabled = false;
+		}
+		Color white = Color.white;
+		white.r = border_brightness;
+		white.g = border_brightness;
+		white.b = border_brightness;
+		if (World.world.era_manager.getCurrentAge().overlay_darkness)
+		{
+			_night_multiplier = Mathf.Lerp(_night_multiplier, 0.6f, World.world.delta_time * 0.5f);
+		}
+		else
+		{
+			_night_multiplier = Mathf.Lerp(_night_multiplier, 1f, World.world.delta_time * 0.5f);
+		}
+		white.a = _cached_map_opacity;
+		sprRnd.color = white;
+	}
+
+	public override void update(float pElapsed)
+	{
+		base.update(pElapsed);
+	}
+
+	private void checkClearAllZonesToRedraw()
+	{
+		int num = World.world.getCachedMapMetaAsset()?.getZoneOptionState() ?? (-1);
+		if ((num != -1 && num != _last_zone_state) || _selection_changed_dirty || _last_should_be_clear_color != _cached_should_be_clear_color)
+		{
+			clearCurrentDrawnZones();
+			_selection_changed_dirty = false;
+		}
+	}
+
+	public override void draw(float pElapsed)
+	{
+		redrawZones();
+	}
+
+	private static float getCameraScaleZoom()
+	{
+		return Mathf.Clamp(MoveCamera.instance.main_camera.orthographicSize / 20f, 1f, 30f);
+	}
+
+	private void setDirty()
+	{
+		_dirty = true;
+	}
+
+	private void setMode(MetaTypeAsset pAsset)
+	{
+		if (_mode_asset != pAsset)
+		{
+			clearAllRedrawTimers();
+		}
+		_mode_asset = pAsset;
+	}
+
+	public void clearAllRedrawTimers()
+	{
+		clearTimer();
+		clearWorldBehaviourTimer();
+	}
+
+	public void clearTimer()
+	{
+		_redraw_timer = 0f;
+	}
+
+	public void clearWorldBehaviourTimer()
+	{
+		AssetManager.world_behaviours.get("zones_meta_data_visualizer").manager.timerClear();
+	}
+
+	public bool isModeNone()
+	{
+		return _mode_asset == null;
+	}
+
+	private bool isBorderColor_relations(TileZone pZone, City pCity, bool pCheckFriendly = false)
+	{
+		if (pZone != null && pZone.city != pCity && pZone.city != null && pZone.city.kingdom == pCity.kingdom)
+		{
+			return false;
+		}
+		if (pZone != null && pZone.city != null)
+		{
+			return pZone.city.kingdom != pCity.kingdom;
+		}
+		return true;
+	}
+
+	public void debug(DebugTool pTool)
+	{
+		if (_debug_redrawn_last_amount != 0)
+		{
+			_debug_redrawn_last = _debug_redrawn_last_amount;
+		}
+		pTool.setText("_toCleanUp", _to_clean_up.Count, 0f, pShowBar: false, 0L);
+		pTool.setText("_lastDrawnZones", _current_drawn_zones.Count, 0f, pShowBar: false, 0L);
+		pTool.setText("redrawn_last", _debug_redrawn_last, 0f, pShowBar: false, 0L);
+		pTool.setSeparator();
+	}
+
+	public TileZone getMapCenterZone()
+	{
+		int num = zones_total_x / 2;
+		int num2 = zones_total_y / 2;
+		return map[num, num2];
+	}
+
+	public void drawZoneMeta(TileZone pZone, MetaTypeAsset pMetaTypeAsset, MetaZoneGetMetaSimple pZoneGetDelegate)
+	{
+		IMetaObject metaObject = pZoneGetDelegate(pZone);
+		bool pUp = isBorderColorSameNanoObject(pZone.zone_up, pZoneGetDelegate, metaObject);
+		bool pDown = isBorderColorSameNanoObject(pZone.zone_down, pZoneGetDelegate, metaObject);
+		bool pLeft = isBorderColorSameNanoObject(pZone.zone_left, pZoneGetDelegate, metaObject);
+		bool pRight = isBorderColorSameNanoObject(pZone.zone_right, pZoneGetDelegate, metaObject);
+		MetaObjectData pMetaData = null;
+		if (metaObject != null)
+		{
+			pMetaData = metaObject.getMetaData();
+		}
+		drawZoneMeta(metaObject, pZone, pUp, pDown, pLeft, pRight, pMetaData, pMetaTypeAsset);
+	}
+
+	public void drawZoneAlliance(TileZone pZone, int pZoneOption)
+	{
+		Alliance allianceOnZone = pZone.getAllianceOnZone(pZoneOption);
+		bool pUp = isBorderColor_alliance(pZone.zone_up, allianceOnZone, pZoneOption);
+		bool pDown = isBorderColor_alliance(pZone.zone_down, allianceOnZone, pZoneOption);
+		bool pLeft = isBorderColor_alliance(pZone.zone_left, allianceOnZone, pZoneOption);
+		bool pRight = isBorderColor_alliance(pZone.zone_right, allianceOnZone, pZoneOption);
+		drawZoneMeta(allianceOnZone, pZone, pUp, pDown, pLeft, pRight, allianceOnZone.data, MetaTypeLibrary.alliance);
+	}
+
+	private bool isBorderColor_alliance(TileZone pZone, Alliance pAlliance, int pZoneOption, bool pCheckFriendly = false)
+	{
+		if (pZone == null)
+		{
+			return true;
+		}
+		NanoObject allianceOnZone = pZone.getAllianceOnZone(pZoneOption);
+		if (allianceOnZone == null)
+		{
+			return true;
+		}
+		if (allianceOnZone == pAlliance)
+		{
+			return false;
+		}
+		return true;
+	}
+
+	private void drawZoneMeta(IMetaObject pMeta, TileZone pZone, bool pUp, bool pDown, bool pLeft, bool pRight, MetaObjectData pMetaData, MetaTypeAsset pMetaTypeAsset)
+	{
+		//IL_0083: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0088: Unknown result type (might be due to invalid IL or missing references)
+		//IL_008a: Unknown result type (might be due to invalid IL or missing references)
+		//IL_008f: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0045: Unknown result type (might be due to invalid IL or missing references)
+		//IL_004a: Unknown result type (might be due to invalid IL or missing references)
+		//IL_005e: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0063: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0054: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0059: Unknown result type (might be due to invalid IL or missing references)
+		int pHashCode = -1;
+		if (pMeta != null)
+		{
+			pHashCode = pMeta.GetHashCode();
+		}
+		int pID = generateIdForDraw(_mode_asset, pHashCode, pUp, pDown, pLeft, pRight);
+		bool pLastAnimated = false;
+		int pColorAssetID = 0;
+		Color32 pColorBorderOut;
+		Color32 pColorBorderInside;
+		if (pMeta != null && pMeta.isAlive())
+		{
+			ColorAsset color = pMeta.getColor();
+			pColorAssetID = color.index_id;
+			pColorBorderOut = color.getColorMainSecond32();
+			pColorBorderInside = ((!_cached_should_be_clear_color) ? color.getColorBorderInsideAlpha32() : _color_clear);
+			pLastAnimated = checkFadeAndSelectionColors(pZone, ref pColorBorderInside, ref pColorBorderOut, 0f, pMeta, pMetaTypeAsset, pMetaData.favorite);
+		}
+		else
+		{
+			pColorBorderInside = _color_clear;
+			pColorBorderOut = _color_clear;
+		}
+		if (pZone.checkShouldReRender(pHashCode, pID, pColorAssetID, pLastAnimated))
+		{
+			applyMetaColorsToZone(pZone, ref pColorBorderInside, ref pColorBorderOut, pUp, pDown, pLeft, pRight);
+		}
+	}
+
+	public void drawZoneCity(TileZone pZone)
+	{
+		//IL_0015: Unknown result type (might be due to invalid IL or missing references)
+		//IL_001a: Unknown result type (might be due to invalid IL or missing references)
+		//IL_001b: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0020: Unknown result type (might be due to invalid IL or missing references)
+		//IL_002a: Unknown result type (might be due to invalid IL or missing references)
+		//IL_002f: Unknown result type (might be due to invalid IL or missing references)
+		City city = pZone.city;
+		Kingdom kingdom = city.kingdom;
+		ColorAsset color = city.getColor();
+		Color32 pColorBorderInside = color.getColorBorderInsideAlpha32();
+		Color32 pColorBorderOut = color.getColorMainSecond32();
+		if (_cached_should_be_clear_color)
+		{
+			pColorBorderInside = _color_clear;
+		}
+		bool pUp = isBorderColor_cities(pZone.zone_up, city, pCheckFriendly: true);
+		bool pDown = isBorderColor_cities(pZone.zone_down, city);
+		bool pLeft = isBorderColor_cities(pZone.zone_left, city);
+		bool pRight = isBorderColor_cities(pZone.zone_right, city, pCheckFriendly: true);
+		int hashCode = city.GetHashCode();
+		int num = generateIdForDraw(_mode_asset, hashCode, pUp, pDown, pLeft, pRight);
+		num += kingdom.GetHashCode();
+		bool pLastAnimated = checkFadeAndSelectionColors(pZone, ref pColorBorderInside, ref pColorBorderOut, 0f, city, MetaTypeLibrary.city, city.data.favorite);
+		if (pZone.checkShouldReRender(hashCode, num, 0, pLastAnimated))
+		{
+			applyMetaColorsToZone(pZone, ref pColorBorderInside, ref pColorBorderOut, pUp, pDown, pLeft, pRight);
+		}
+	}
+
+	private bool isBorderColorSameNanoObject(TileZone pZone, MetaZoneGetMetaSimple pZoneGetMetaDelegate, IMetaObject pNanoObjectMain)
+	{
+		if (pZone == null)
+		{
+			return true;
+		}
+		IMetaObject metaObject = pZoneGetMetaDelegate(pZone);
+		if (metaObject == null)
+		{
+			return true;
+		}
+		if (metaObject == pNanoObjectMain)
+		{
+			return false;
+		}
+		return true;
+	}
+
+	private bool isBorderColor_cities(TileZone pZone, City pCityMain, bool pCheckFriendly = false)
+	{
+		if (pZone == null)
+		{
+			return true;
+		}
+		City city = pZone.city;
+		Kingdom kingdom = city?.kingdom;
+		if (pCheckFriendly && city != pCityMain && city != null && kingdom == pCityMain.kingdom)
+		{
+			return false;
+		}
+		if (city != null && kingdom == pCityMain.kingdom)
+		{
+			return city != pCityMain;
+		}
+		return true;
+	}
+
+	private bool checkShouldDrawObject(bool pMetaFavorite)
+	{
+		if (_cached_ony_favorited_meta && !pMetaFavorite)
+		{
+			return false;
+		}
+		return true;
+	}
+
+	private float getMapOpacity()
+	{
+		float num = ((!MapBox.isRenderMiniMap()) ? Mathf.Clamp(getCameraScaleZoom() * 0.3f, 0f, 0.78f) : minimap_opacity);
+		return num * _night_multiplier;
+	}
+
+	private bool shouldBeClearColor()
+	{
+		if (MapBox.isRenderGameplay())
+		{
+			return true;
+		}
+		return false;
+	}
+
+	public void drawEnd(TileZone pZone)
+	{
+		_current_drawn_zones.Add(pZone);
+		_to_clean_up.Remove(pZone);
+	}
+
+	private void checkCursorNanoObject()
+	{
+		NanoObject nanoObject = null;
+		if (MapBox.isRenderMiniMap() && !World.world.isOverUI())
+		{
+			WorldTile mouseTilePosCachedFrame = World.world.getMouseTilePosCachedFrame();
+			MetaTypeAsset cachedMapMetaAsset = World.world.getCachedMapMetaAsset();
+			if (mouseTilePosCachedFrame != null && cachedMapMetaAsset != null)
+			{
+				nanoObject = cachedMapMetaAsset.tile_get_metaobject?.Invoke(mouseTilePosCachedFrame.zone, cachedMapMetaAsset.getZoneOptionState()) as NanoObject;
+			}
+		}
+		if (_cursor_nano_object != nanoObject)
+		{
+			_selection_changed_dirty = true;
+		}
+		_cursor_nano_object = nanoObject;
+	}
+
+	private void checkSelectedNanoObject()
+	{
+		NanoObject nanoObject = null;
+		if (MapBox.isRenderMiniMap())
+		{
+			MetaTypeAsset cachedMapMetaAsset = World.world.getCachedMapMetaAsset();
+			if (cachedMapMetaAsset != null)
+			{
+				nanoObject = cachedMapMetaAsset.get_selected();
+			}
+		}
+		if (nanoObject != _selected_nano_object)
+		{
+			_selection_changed_dirty = true;
+		}
+		_selected_nano_object = nanoObject;
+	}
+
+	private void redrawZones()
+	{
+		Bench.bench("borders_renderer", "borders_renderer_total");
+		Bench.bench("clearAllRedrawTimers", "borders_renderer");
+		if (_last_selected_kingdom != SelectedMetas.selected_kingdom)
+		{
+			_last_selected_kingdom = SelectedMetas.selected_kingdom;
+			clearAllRedrawTimers();
+		}
+		Bench.benchEnd("clearAllRedrawTimers", "borders_renderer", pSaveCounter: false, 0L);
+		if (_redraw_timer > 0f)
+		{
+			_redraw_timer -= Time.deltaTime;
+			Bench.clearBenchmarkEntrySkipMultiple("borders_renderer_total", "_to_clean_up.union", "draw_zones.Invoke", "clearDrawnZones", "updatePixels");
+			return;
+		}
+		_redraw_timer = 0.01f;
+		Bench.bench("_to_clean_up.union", "borders_renderer");
+		_debug_redrawn_last_amount = 0;
+		if (_current_drawn_zones.Any())
+		{
+			_to_clean_up.UnionWith(_current_drawn_zones);
+		}
+		Bench.benchEnd("_to_clean_up.union", "borders_renderer", pSaveCounter: false, 0L);
+		Bench.bench("draw_zones.Invoke", "borders_renderer");
+		if (_mode_asset != null)
+		{
+			_mode_asset.draw_zones(_mode_asset);
+		}
+		Bench.benchEnd("draw_zones.Invoke", "borders_renderer", pSaveCounter: false, 0L);
+		Bench.bench("clearDrawnZones", "borders_renderer");
+		if (_to_clean_up.Any())
+		{
+			clearDrawnZones();
+		}
+		Bench.benchEnd("clearDrawnZones", "borders_renderer", pSaveCounter: false, 0L);
+		Bench.bench("updatePixels", "borders_renderer");
+		if (_dirty)
+		{
+			_dirty = false;
+			updatePixels();
+		}
+		Bench.benchEnd("updatePixels", "borders_renderer", pSaveCounter: false, 0L);
+		Bench.benchEnd("borders_renderer", "borders_renderer_total", pSaveCounter: false, 0L);
+	}
+
+	private void clearDrawnZones()
+	{
+		foreach (TileZone item in _to_clean_up)
+		{
+			drawZoneClear(item);
+			item.resetRenderHelpers();
+			_current_drawn_zones.Remove(item);
+		}
+		_to_clean_up.Clear();
+	}
+
+	public void dirtyAndClear()
+	{
+		setDrawnZonesDirty();
+		clearCurrentDrawnZones();
+	}
+
+	internal void clearCurrentDrawnZones(bool pCleanTimer = true)
+	{
+		foreach (TileZone current_drawn_zone in _current_drawn_zones)
+		{
+			drawZoneClear(current_drawn_zone);
+			current_drawn_zone.resetRenderHelpers();
+		}
+		_current_drawn_zones.Clear();
+		if (pCleanTimer)
+		{
+			clearAllRedrawTimers();
+		}
+	}
+
+	private int generateIdForDraw(MetaTypeAsset pModeAsset, int pHashCode, bool pUp, bool pDown, bool pLeft, bool pRight)
+	{
+		int num = (pModeAsset.GetHashCode() + 1) * 10000000;
+		if (pUp)
+		{
+			num += 100000;
+		}
+		if (pDown)
+		{
+			num += 10000;
+		}
+		if (pLeft)
+		{
+			num += 1000;
+		}
+		if (pRight)
+		{
+			num += 100;
+		}
+		return num;
+	}
+
+	public MetaType getCurrentModeDebug()
+	{
+		MetaType metaType = Zones.getForcedMapMode();
+		if (metaType.isNone())
+		{
+			MetaTypeAsset cachedMapMetaAsset = World.world.getCachedMapMetaAsset();
+			if (cachedMapMetaAsset != null)
+			{
+				metaType = cachedMapMetaAsset.map_mode;
+			}
+		}
+		return metaType;
+	}
+
+	private void applyAlphaFadeToColor(ref Color32 pColorBorderInside, ref Color32 pColorBorderOutside, MetaTypeAsset pMetaTypeAsset, float pDiff, int pUnits, double pTimestampNew)
+	{
+		float cached_map_opacity = _cached_map_opacity;
+		float num = pDiff / 5f;
+		float num2 = 0.6f;
+		float num3 = (float)(int)pColorBorderInside.a / 255f;
+		float num4 = (float)(int)pColorBorderOutside.a / 255f;
+		float num5 = 1f;
+		World.world.getWorldTimeElapsedSince(pTimestampNew);
+		_ = 1f;
+		float num6 = 1f - num;
+		float num7 = Mathf.Clamp01((num - num2) / (1f - num2));
+		float num8 = (1f - num7 * num7 * num7) * (cached_map_opacity * num5);
+		num6 *= cached_map_opacity * num5;
+		byte a = (byte)(num8 * num3 * 255f);
+		byte a2 = (byte)(num6 * num4 * 255f);
+		pColorBorderInside.a = a;
+		pColorBorderOutside.a = a2;
+	}
+
+	private bool shouldShowSelectionFor(IMetaObject pNanoObject)
+	{
+		if (pNanoObject == _cursor_nano_object || pNanoObject == _selected_nano_object)
+		{
+			return true;
+		}
+		return false;
+	}
+
+	private bool checkFadeAndSelectionColors(TileZone pZone, ref Color32 pColorBorderInside, ref Color32 pColorBorderOut, float pDiff, IMetaObject pMetaObjectToDraw, MetaTypeAsset pMetaTypeAsset, bool pFavorite)
+	{
+		//IL_00d2: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00d7: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00dd: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00e2: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00b6: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00bb: Unknown result type (might be due to invalid IL or missing references)
+		bool flag = false;
+		if (_cached_check_animation)
+		{
+			if (shouldShowSelectionFor(pMetaObjectToDraw))
+			{
+				flag = true;
+			}
+			else if (!_selected_nano_object.isRekt())
+			{
+				pColorBorderInside.a = (byte)((float)(int)pColorBorderInside.a * 0.6f);
+				pColorBorderOut.a = (byte)((float)(int)pColorBorderOut.a * 0.6f);
+			}
+		}
+		bool flag2 = false;
+		flag2 = flag || ((!SelectedUnit.isSet()) ? checkShouldDrawObject(pFavorite) : (SelectedUnit.unit.getMetaObjectOfType(pMetaTypeAsset.map_mode) == pMetaObjectToDraw));
+		if (!flag2)
+		{
+			pColorBorderInside.a = (byte)((float)(int)pColorBorderInside.a * 0.5f);
+			pColorBorderOut.a = (byte)((float)(int)pColorBorderOut.a * 0.5f);
+		}
+		if (!flag2 && _cached_should_be_clear_color)
+		{
+			pColorBorderInside = _color_clear;
+		}
+		if (flag)
+		{
+			pZone.resetRenderHelpers();
+			float num = outline_animation;
+			pColorBorderOut = Color32.Lerp(pColorBorderOut, Toolbox.color_black_32, num);
+		}
+		return flag;
+	}
+
+	public void drawBegin()
+	{
+	}
+
+	internal void setDrawnZonesDirty()
+	{
+		_dirty_draw_zones = true;
+	}
+
+	private void checkDrawnZonesDirty()
+	{
+		if (_dirty_draw_zones)
+		{
+			_dirty_draw_zones = false;
+			clearAllRedrawTimers();
+		}
+	}
+
+	public void drawGenericFluid(ZoneMetaData pData, MetaTypeAsset pMetaTypeAsset)
+	{
+		//IL_003b: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0040: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0045: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0047: Unknown result type (might be due to invalid IL or missing references)
+		//IL_004c: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0051: Unknown result type (might be due to invalid IL or missing references)
+		TileZone zone = pData.zone;
+		IMetaObject meta_object = pData.meta_object;
+		bool pFavorite = meta_object.isFavorite();
+		double curWorldTime = World.world.getCurWorldTime();
+		float diffTime = pData.getDiffTime(curWorldTime);
+		if (!(diffTime > 5f))
+		{
+			ColorAsset color = meta_object.getColor();
+			Color32 pColorBorderInside = Color32.op_Implicit(color.getColorText());
+			Color32 pColorBorderOutside = Color32.op_Implicit(color.getColorText());
+			if (diffTime != 0f)
+			{
+				applyAlphaFadeToColor(ref pColorBorderInside, ref pColorBorderOutside, pMetaTypeAsset, diffTime, meta_object.countUnits(), pData.timestamp_new);
+			}
+			bool pUp = false;
+			bool pDown = false;
+			bool pLeft = false;
+			bool pRight = false;
+			bool num = shouldShowSelectionFor(meta_object);
+			if (num)
+			{
+				pUp = isBorderNanoMetaFluid(zone.zone_up, meta_object, curWorldTime);
+				pDown = isBorderNanoMetaFluid(zone.zone_down, meta_object, curWorldTime);
+				pLeft = isBorderNanoMetaFluid(zone.zone_left, meta_object, curWorldTime);
+				pRight = isBorderNanoMetaFluid(zone.zone_right, meta_object, curWorldTime);
+			}
+			int hashCode = meta_object.GetHashCode();
+			int last_drawn_id = generateIdForDraw(_mode_asset, hashCode, pUp, pDown, pLeft, pRight);
+			zone.last_drawn_id = last_drawn_id;
+			zone.last_drawn_hashcode = hashCode;
+			checkFadeAndSelectionColors(zone, ref pColorBorderInside, ref pColorBorderOutside, diffTime, meta_object, pMetaTypeAsset, pFavorite);
+			if (num)
+			{
+				applyMetaColorsToZone(zone, ref pColorBorderInside, ref pColorBorderOutside, pUp, pDown, pLeft, pRight);
+			}
+			else
+			{
+				applyMetaColorsToZoneFull(zone, ref pColorBorderInside);
+			}
+		}
+	}
+
+	private bool isBorderNanoMetaFluid(TileZone pZone, IMetaObject pMetaMain, double pCurTime)
+	{
+		if (pZone == null)
+		{
+			return true;
+		}
+		if (ZoneMetaDataVisualizer.hasZoneData(pZone))
+		{
+			ZoneMetaData zoneMetaData = ZoneMetaDataVisualizer.getZoneMetaData(pZone);
+			if (zoneMetaData.getDiffTime(pCurTime) > 5f)
+			{
+				return true;
+			}
+			if (zoneMetaData.meta_object == pMetaMain)
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private void applyMetaColorsToZoneFull(TileZone pZone, ref Color32 pColor)
+	{
+		//IL_0026: Unknown result type (might be due to invalid IL or missing references)
+		//IL_002b: Unknown result type (might be due to invalid IL or missing references)
+		//IL_002c: Unknown result type (might be due to invalid IL or missing references)
+		//IL_003a: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0048: Unknown result type (might be due to invalid IL or missing references)
+		//IL_007e: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0083: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0056: Unknown result type (might be due to invalid IL or missing references)
+		setDirty();
+		WorldTile[] tiles = pZone.tiles;
+		Color32[] array = pixels;
+		int num = tiles.Length;
+		Color32 val = array[tiles[0].data.tile_id];
+		if (val.r != pColor.r || val.g != pColor.g || val.b != pColor.b || val.a != pColor.a)
+		{
+			for (int i = 0; i < num; i++)
+			{
+				int tile_id = tiles[i].data.tile_id;
+				array[tile_id] = pColor;
+			}
+			_debug_redrawn_last_amount++;
+		}
+	}
+
+	private void applyMetaColorsToZone(TileZone pZone, ref Color32 pColorInside, ref Color32 pColorOutside, bool pUp, bool pDown, bool pLeft, bool pRight)
+	{
+		//IL_0043: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0048: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0063: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0068: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0080: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0085: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00ca: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00cf: Unknown result type (might be due to invalid IL or missing references)
+		//IL_009d: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00a2: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00ba: Unknown result type (might be due to invalid IL or missing references)
+		//IL_00bf: Unknown result type (might be due to invalid IL or missing references)
+		setDirty();
+		WorldTile[] tiles = pZone.tiles;
+		Color32[] array = pixels;
+		int num = tiles.Length;
+		for (int i = 0; i < num; i++)
+		{
+			WorldTile obj = tiles[i];
+			int tile_id = obj.data.tile_id;
+			WorldTileZoneBorder world_tile_zone_border = obj.world_tile_zone_border;
+			if (!world_tile_zone_border.border)
+			{
+				array[tile_id] = pColorInside;
+			}
+			else if (pUp && world_tile_zone_border.border_up)
+			{
+				array[tile_id] = pColorOutside;
+			}
+			else if (pDown && world_tile_zone_border.border_down)
+			{
+				array[tile_id] = pColorOutside;
+			}
+			else if (pLeft && world_tile_zone_border.border_left)
+			{
+				array[tile_id] = pColorOutside;
+			}
+			else if (pRight && world_tile_zone_border.border_right)
+			{
+				array[tile_id] = pColorOutside;
+			}
+			else
+			{
+				array[tile_id] = pColorInside;
+			}
+		}
+		_debug_redrawn_last_amount++;
+	}
+
+	private void drawZoneClear(TileZone pZone)
+	{
+		//IL_0002: Unknown result type (might be due to invalid IL or missing references)
+		colorZone(pZone, Toolbox.clear);
+	}
+
+	private void colorZone(TileZone pZone, Color32 pColor)
+	{
+		//IL_0026: Unknown result type (might be due to invalid IL or missing references)
+		//IL_002b: Unknown result type (might be due to invalid IL or missing references)
+		//IL_002c: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0032: Unknown result type (might be due to invalid IL or missing references)
+		//IL_003a: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0040: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0048: Unknown result type (might be due to invalid IL or missing references)
+		//IL_004e: Unknown result type (might be due to invalid IL or missing references)
+		//IL_007d: Unknown result type (might be due to invalid IL or missing references)
+		//IL_007e: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0056: Unknown result type (might be due to invalid IL or missing references)
+		//IL_005c: Unknown result type (might be due to invalid IL or missing references)
+		setDirty();
+		Color32[] array = pixels;
+		WorldTile[] tiles = pZone.tiles;
+		int num = tiles.Length;
+		Color32 val = array[tiles[0].data.tile_id];
+		if (val.r != pColor.r || val.g != pColor.g || val.b != pColor.b || val.a != pColor.a)
+		{
+			for (int i = 0; i < num; i++)
+			{
+				int tile_id = tiles[i].data.tile_id;
+				array[tile_id] = pColor;
+			}
+		}
+	}
+}
+// --- End of File: ZoneCalculator.cs ---
+
+
+
+// --- Start of File: ZoneCamera.cs ---
+using System.Collections.Generic;
+using UnityEngine;
+
+public class ZoneCamera
+{
+	private readonly List<TileZone> _visible_zones = new List<TileZone>();
+
+	private readonly HashSet<MapChunk> _set_visible_chunks = new HashSet<MapChunk>();
+
+	private readonly List<MapChunk> _list_visible_chunks = new List<MapChunk>();
+
+	private readonly ZoneCalculator _zone_manager;
+
+	private int _last_start_x = -1;
+
+	private int _last_start_y = -1;
+
+	private int _last_width = -1;
+
+	private int _last_height = -1;
+
+	private int _last_main_x = -1;
+
+	public ZoneCamera()
+	{
+		_zone_manager = World.world.zone_calculator;
+	}
+
+	private void calculateBounds(out int pResultStartX, out int pResultStartY, out int pResultWidth, out int pResultHeight, out int pResultMainX)
+	{
+		int num = 0;
+		int num2 = 0;
+		int num3 = 0;
+		num++;
+		num3++;
+		TileZone zoneWithinCamera = getZoneWithinCamera(0, 0);
+		TileZone zoneWithinCamera2 = getZoneWithinCamera(1, 0);
+		TileZone zoneWithinCamera3 = getZoneWithinCamera(0, 1);
+		TileZone zoneWithinCamera4 = getZoneWithinCamera(1, 1);
+		int num4 = ((zoneWithinCamera3.x <= zoneWithinCamera.x) ? zoneWithinCamera.x : zoneWithinCamera3.x);
+		int num5 = ((zoneWithinCamera2.y <= zoneWithinCamera.y) ? zoneWithinCamera.y : zoneWithinCamera2.y);
+		num4 -= num;
+		num5 -= num2;
+		int num6 = zoneWithinCamera4.x - num4 + num;
+		int num7 = zoneWithinCamera4.y - num5 + num3;
+		if (zoneWithinCamera2.x < zoneWithinCamera4.x)
+		{
+			num6 = zoneWithinCamera2.x - num4;
+		}
+		if (zoneWithinCamera3.y < zoneWithinCamera4.y)
+		{
+			num7 = zoneWithinCamera3.y - num5;
+		}
+		int num8 = num4;
+		if (num8 > 0)
+		{
+			num8++;
+		}
+		if (num4 < 0)
+		{
+			num4 = 0;
+		}
+		if (num5 < 0)
+		{
+			num5 = 0;
+		}
+		if (num6 > _zone_manager.zones_total_x)
+		{
+			num6 = _zone_manager.zones_total_x;
+		}
+		if (num7 > _zone_manager.zones_total_y)
+		{
+			num7 = _zone_manager.zones_total_y;
+		}
+		pResultStartX = num4;
+		pResultStartY = num5;
+		pResultWidth = num6;
+		pResultHeight = num7;
+		pResultMainX = num8;
+	}
+
+	internal void update()
+	{
+		Bench.bench("zone_camera", "zone_camera_total");
+		Bench.bench("calc_bounds", "zone_camera");
+		calculateBounds(out var pResultStartX, out var pResultStartY, out var pResultWidth, out var pResultHeight, out var pResultMainX);
+		Bench.benchEnd("calc_bounds", "zone_camera", pSaveCounter: false, 0L);
+		if (pResultStartX != _last_start_x || pResultStartY != _last_start_y || pResultWidth != _last_width || pResultHeight != _last_height || pResultMainX != _last_main_x)
+		{
+			_last_start_x = pResultStartX;
+			_last_start_y = pResultStartY;
+			_last_width = pResultWidth;
+			_last_height = pResultHeight;
+			_last_main_x = pResultMainX;
+			Bench.bench("clear", "zone_camera");
+			clear();
+			Bench.benchEnd("clear", "zone_camera", pSaveCounter: false, 0L);
+			Bench.bench("fill", "zone_camera");
+			fillVisibleZones(pResultStartX, pResultStartY, pResultWidth, pResultHeight, pResultMainX);
+			Bench.benchEnd("fill", "zone_camera", pSaveCounter: false, 0L);
+			Bench.benchEnd("zone_camera", "zone_camera_total", pSaveCounter: false, 0L);
+		}
+	}
+
+	private void fillVisibleZones(int pStartX, int pStartY, int pWidth, int pHeight, int pMainX)
+	{
+		int zones_total_x = _zone_manager.zones_total_x;
+		int zones_total_y = _zone_manager.zones_total_y;
+		HashSet<MapChunk> set_visible_chunks = _set_visible_chunks;
+		List<TileZone> visible_zones = _visible_zones;
+		float power_bar_position_y = World.world.move_camera.power_bar_position_y;
+		if (pStartX == 0 && pStartY == 0 && pWidth == zones_total_x && pHeight == zones_total_y)
+		{
+			visible_zones.AddRange(_zone_manager.zones);
+			foreach (TileZone item in visible_zones)
+			{
+				item.visible = true;
+				item.visible_main_centered = true;
+			}
+			_list_visible_chunks.AddRange(World.world.map_chunk_manager.chunks);
+			set_visible_chunks.UnionWith(_list_visible_chunks);
+			return;
+		}
+		for (int i = 0; i <= pWidth; i++)
+		{
+			for (int j = 0; j <= pHeight; j++)
+			{
+				int num = pStartX + i;
+				if (num < 0 || num >= zones_total_x)
+				{
+					continue;
+				}
+				int num2 = pStartY + j;
+				if (num2 >= 0 && num2 < zones_total_y)
+				{
+					TileZone zoneUnsafe = _zone_manager.getZoneUnsafe(num, num2);
+					visible_zones.Add(zoneUnsafe);
+					set_visible_chunks.Add(zoneUnsafe.chunk);
+					zoneUnsafe.visible = true;
+					if (num >= pMainX && i < pWidth && j < pHeight && !((float)zoneUnsafe.top_left_corner_tile.y < power_bar_position_y))
+					{
+						zoneUnsafe.visible_main_centered = true;
+					}
+				}
+			}
+		}
+		_list_visible_chunks.AddRange(set_visible_chunks);
+	}
+
+	public List<TileZone> getVisibleZones()
+	{
+		return _visible_zones;
+	}
+
+	public List<MapChunk> getVisibleChunks()
+	{
+		return _list_visible_chunks;
+	}
+
+	public bool hasVisibleZones()
+	{
+		return _visible_zones.Count > 0;
+	}
+
+	public int countVisibleZones()
+	{
+		return _visible_zones.Count;
+	}
+
+	private TileZone getZoneWithinCamera(int pX, int pY, float pBonusY = 0f)
+	{
+		//IL_001d: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0022: Unknown result type (might be due to invalid IL or missing references)
+		//IL_0027: Unknown result type (might be due to invalid IL or missing references)
+		Vector3 val = World.world.camera.ViewportToWorldPoint(new Vector3((float)pX, (float)pY, World.world.camera.nearClipPlane));
+		int pX2 = (int)val.x;
+		int pY2 = (int)val.y + (int)(pBonusY * 8f);
+		int pX3 = _zone_manager.zones_total_x - 1;
+		int pY3 = _zone_manager.zones_total_y - 1;
+		WorldTile tile = World.world.GetTile(pX2, pY2);
+		if (tile == null)
+		{
+			if (pX == 0 && pY == 0)
+			{
+				return _zone_manager.getZone(0, 0);
+			}
+			if (pX == 1 && pY == 1)
+			{
+				return _zone_manager.getZone(pX3, pY3);
+			}
+			if (pX == 0 && pY == 1)
+			{
+				return _zone_manager.getZone(0, pY3);
+			}
+			if (pX == 1 && pY == 0)
+			{
+				return _zone_manager.getZone(pX3, 0);
+			}
+			return null;
+		}
+		return tile.zone;
+	}
+
+	public void clear()
+	{
+		List<TileZone> visible_zones = _visible_zones;
+		foreach (TileZone item in visible_zones)
+		{
+			item.visible = false;
+			item.visible_main_centered = false;
+		}
+		visible_zones.Clear();
+		_list_visible_chunks.Clear();
+		_set_visible_chunks.Clear();
+	}
+
+	public void fullClear()
+	{
+		_visible_zones.Clear();
+		_last_start_x = -1;
+		_last_start_y = -1;
+		_last_width = -1;
+		_last_height = -1;
+		_last_main_x = -1;
+	}
+}
+// --- End of File: ZoneCamera.cs ---
+
+
+
+// --- Start of File: ZoneConnection.cs ---
+using System;
+using System.Runtime.CompilerServices;
+
+public readonly struct ZoneConnection : IEquatable<ZoneConnection>
+{
+	public readonly TileZone zone;
+
+	public readonly MapRegion region;
+
+	public ZoneConnection(TileZone pZone, MapRegion pRegion)
+	{
+		zone = pZone;
+		region = pRegion;
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool Equals(ZoneConnection pObject)
+	{
+		if (zone.Equals(pObject.zone))
+		{
+			return region.Equals(pObject.region);
+		}
+		return false;
+	}
+
+	public override int GetHashCode()
+	{
+		return zone.GetHashCode() + region.GetHashCode() * 100000;
+	}
+}
+// --- End of File: ZoneConnection.cs ---
+
+
+
+// --- Start of File: ZoneData.cs ---
+using System;
+
+[Serializable]
+public class ZoneData
+{
+	public int x;
+
+	public int y;
+}
+// --- End of File: ZoneData.cs ---
+
+
+
+// --- Start of File: ZoneFlash.cs ---
+using UnityEngine;
+
+public class ZoneFlash : BaseEffect
+{
+	public void start(Color pColor, float pAlpha = 0.2f)
+	{
+		//IL_0006: Unknown result type (might be due to invalid IL or missing references)
+		sprite_renderer.color = pColor;
+		setAlpha(pAlpha);
+	}
+
+	public override void update(float pElapsed)
+	{
+		setAlpha(alpha - pElapsed * 0.1f);
+		if (alpha <= 0f)
+		{
+			kill();
+		}
+	}
+}
+// --- End of File: ZoneFlash.cs ---
+
+
+
+// --- Start of File: ZoneMetaData.cs ---
+public struct ZoneMetaData
+{
+	public double timestamp;
+
+	public double timestamp_new;
+
+	public IMetaObject meta_object;
+
+	public int previous_priority_amount;
+
+	public TileZone zone;
+
+	public float getDiffTime()
+	{
+		return getDiffTime(World.world.getCurWorldTime());
+	}
+
+	public float getDiffTime(double pWorldTime)
+	{
+		return (float)(pWorldTime - timestamp);
+	}
+}
+// --- End of File: ZoneMetaData.cs ---
+
+
+
+// --- Start of File: ZoneMetaDataVisualizer.cs ---
+using System.Collections.Generic;
+
+public static class ZoneMetaDataVisualizer
+{
+	public const float FADE_TIME = 5f;
+
+	public static readonly Dictionary<TileZone, ZoneMetaData> zone_data_dict = new Dictionary<TileZone, ZoneMetaData>();
+
+	private static readonly List<TileZone> _to_remove = new List<TileZone>();
+
+	private static MetaType _last_meta_type = MetaType.None;
+
+	public static bool hasZoneData(TileZone pZone)
+	{
+		return zone_data_dict.ContainsKey(pZone);
+	}
+
+	public static ZoneMetaData getZoneMetaData(TileZone pZone)
+	{
+		zone_data_dict.TryGetValue(pZone, out var value);
+		return value;
+	}
+
+	public static ListPool<TileZone> getZonesWithMeta(IMetaObject pMeta)
+	{
+		ListPool<TileZone> listPool = new ListPool<TileZone>();
+		foreach (ZoneMetaData value in zone_data_dict.Values)
+		{
+			if (value.meta_object == pMeta)
+			{
+				listPool.Add(value.zone);
+			}
+		}
+		return listPool;
+	}
+
+	private static bool shouldUpdateEntry(ZoneMetaData pData, IMetaObject pNewMetaObject)
+	{
+		IMetaObject meta_object = pData.meta_object;
+		if (meta_object == null)
+		{
+			return true;
+		}
+		if (meta_object.getMetaTypeAsset().map_mode != pNewMetaObject.getMetaTypeAsset().map_mode)
+		{
+			return true;
+		}
+		if (pData.previous_priority_amount < pNewMetaObject.countUnits())
+		{
+			return true;
+		}
+		if (meta_object == pNewMetaObject)
+		{
+			return true;
+		}
+		return false;
+	}
+
+	public static void countMetaZone(TileZone pZone, IMetaObject pMetaObject, double pTimestamp)
+	{
+		if (zone_data_dict.TryGetValue(pZone, out var value))
+		{
+			if (shouldUpdateEntry(value, pMetaObject))
+			{
+				value.meta_object = pMetaObject;
+				value.timestamp = pTimestamp;
+				value.previous_priority_amount = pMetaObject.countUnits();
+				zone_data_dict[pZone] = value;
+			}
+		}
+		else
+		{
+			ZoneMetaData zoneMetaData = default(ZoneMetaData);
+			zoneMetaData.meta_object = pMetaObject;
+			zoneMetaData.zone = pZone;
+			zoneMetaData.timestamp = pTimestamp;
+			zoneMetaData.timestamp_new = pTimestamp;
+			zoneMetaData.previous_priority_amount = pMetaObject.countUnits();
+			value = zoneMetaData;
+			zone_data_dict.Add(pZone, value);
+		}
+	}
+
+	private static void start()
+	{
+		_to_remove.Clear();
+	}
+
+	private static void checkDynamicZones()
+	{
+		MetaTypeAsset cachedMapMetaAsset = World.world.getCachedMapMetaAsset();
+		if (cachedMapMetaAsset != null && cachedMapMetaAsset.map_mode != _last_meta_type)
+		{
+			clearAll();
+			_last_meta_type = cachedMapMetaAsset.map_mode;
+		}
+		if (cachedMapMetaAsset != null && cachedMapMetaAsset.has_dynamic_zones && cachedMapMetaAsset.isMetaZoneOptionSelectedFluid())
+		{
+			cachedMapMetaAsset.dynamic_zones();
+		}
+	}
+
+	private static void clearOldAndDeadZones()
+	{
+		double curWorldTime = World.world.getCurWorldTime();
+		List<TileZone> to_remove = _to_remove;
+		foreach (KeyValuePair<TileZone, ZoneMetaData> item in zone_data_dict)
+		{
+			ZoneMetaData value = item.Value;
+			if (value.meta_object == null || !value.meta_object.isAlive())
+			{
+				to_remove.Add(item.Key);
+			}
+			else if (value.getDiffTime(curWorldTime) > 5f)
+			{
+				to_remove.Add(item.Key);
+			}
+		}
+		foreach (TileZone item2 in to_remove)
+		{
+			zone_data_dict.Remove(item2);
+		}
+		_to_remove.Clear();
+	}
+
+	public static void updateMetaZones()
+	{
+		Bench.bench("fluid_zones_data", "fluid_zones_data_total");
+		Bench.bench("start", "fluid_zones_data");
+		start();
+		Bench.benchEnd("start", "fluid_zones_data", pSaveCounter: false, 0L);
+		Bench.bench("checkDynamicZones", "fluid_zones_data");
+		checkDynamicZones();
+		Bench.benchEnd("checkDynamicZones", "fluid_zones_data", pSaveCounter: false, 0L);
+		Bench.bench("clearOldAndDeadZones", "fluid_zones_data");
+		clearOldAndDeadZones();
+		Bench.benchEnd("clearOldAndDeadZones", "fluid_zones_data", pSaveCounter: false, 0L);
+		Bench.bench("checkCenterTitles", "fluid_zones_data");
+		checkCenterTitles();
+		Bench.benchEnd("checkCenterTitles", "fluid_zones_data", pSaveCounter: false, 0L);
+		Bench.benchEnd("fluid_zones_data", "fluid_zones_data_total", pSaveCounter: false, 0L);
+	}
+
+	private static void checkCenterTitles()
+	{
+		foreach (Culture culture in World.world.cultures)
+		{
+			culture.updateTitleCenter();
+		}
+	}
+
+	public static void clearAll()
+	{
+		zone_data_dict.Clear();
+	}
+}
+// --- End of File: ZoneMetaDataVisualizer.cs ---
+
+
+
+// --- Start of File: Zones.cs ---
+public static class Zones
+{
+	private static GodPower _selected_power => World.world.selected_power;
+
+	internal static bool isPowerForceMapMode(MetaType pMode = MetaType.None)
+	{
+		if (!World.world.isAnyPowerSelected())
+		{
+			return false;
+		}
+		return _selected_power.force_map_mode == pMode;
+	}
+
+	public static bool isPowerForcedMapModeEnabled()
+	{
+		MetaType pType = MetaType.None;
+		if (World.world.isAnyPowerSelected() && !_selected_power.force_map_mode.isNone())
+		{
+			pType = _selected_power.force_map_mode;
+		}
+		return !pType.isNone();
+	}
+
+	internal static MetaType getForcedMapMode()
+	{
+		MetaType result = MetaType.None;
+		if (isPowerForcedMapModeEnabled())
+		{
+			result = _selected_power.force_map_mode;
+		}
+		else if (SelectedObjects.isNanoObjectSet())
+		{
+			MetaTypeAsset metaTypeAsset = SelectedObjects.getSelectedNanoObject().getMetaTypeAsset();
+			if (metaTypeAsset.force_zone_when_selected)
+			{
+				result = metaTypeAsset.map_mode;
+			}
+		}
+		return result;
+	}
+
+	public static bool hasPowerForceMapMode()
+	{
+		return !getForcedMapMode().isNone();
+	}
+
+	public static MetaTypeAsset getMapMetaAsset()
+	{
+		if (hasPowerForceMapMode())
+		{
+			return getForcedMapMode().getAsset();
+		}
+		for (int i = 0; i < AssetManager.meta_type_library.list.Count; i++)
+		{
+			MetaTypeAsset metaTypeAsset = AssetManager.meta_type_library.list[i];
+			if (!string.IsNullOrEmpty(metaTypeAsset.option_id) && (AssetManager.options_library.get(metaTypeAsset.option_id).isActive() || isPowerForceMapMode(metaTypeAsset.map_mode)))
+			{
+				return metaTypeAsset;
+			}
+		}
+		return null;
+	}
+
+	public static bool showMapNames()
+	{
+		if (!PlayerConfig.optionBoolEnabled("map_names"))
+		{
+			return hasPowerForceMapMode();
+		}
+		return true;
+	}
+
+	public static bool showMapBorders()
+	{
+		if (!isBordersEnabled())
+		{
+			return hasPowerForceMapMode();
+		}
+		return true;
+	}
+
+	public static bool isBordersEnabled()
+	{
+		return PlayerConfig.optionBoolEnabled("map_layers");
+	}
+
+	public static MetaType getCurrentMapBorderMode(bool pCheckOnlyOption = false)
+	{
+		if (showCultureZones(pCheckOnlyOption))
+		{
+			return MetaType.Culture;
+		}
+		if (showKingdomZones(pCheckOnlyOption))
+		{
+			return MetaType.Kingdom;
+		}
+		if (showClanZones(pCheckOnlyOption))
+		{
+			return MetaType.Clan;
+		}
+		if (showAllianceZones(pCheckOnlyOption))
+		{
+			return MetaType.Alliance;
+		}
+		if (showCityZones(pCheckOnlyOption))
+		{
+			return MetaType.City;
+		}
+		if (showSpeciesZones(pCheckOnlyOption))
+		{
+			return MetaType.Subspecies;
+		}
+		if (showFamiliesZones(pCheckOnlyOption))
+		{
+			return MetaType.Family;
+		}
+		if (showLanguagesZones(pCheckOnlyOption))
+		{
+			return MetaType.Language;
+		}
+		if (showReligionZones(pCheckOnlyOption))
+		{
+			return MetaType.Religion;
+		}
+		if (showArmyZones(pCheckOnlyOption))
+		{
+			return MetaType.Army;
+		}
+		return MetaType.None;
+	}
+
+	public static bool showCityZones(bool pCheckOnlyOption = false)
+	{
+		return MetaTypeLibrary.city.isActive(pCheckOnlyOption);
+	}
+
+	public static bool showKingdomZones(bool pCheckOnlyOption = false)
+	{
+		return MetaTypeLibrary.kingdom.isActive(pCheckOnlyOption);
+	}
+
+	public static bool showClanZones(bool pCheckOnlyOption = false)
+	{
+		return MetaTypeLibrary.clan.isActive(pCheckOnlyOption);
+	}
+
+	public static bool showAllianceZones(bool pCheckOnlyOption = false)
+	{
+		return MetaTypeLibrary.alliance.isActive(pCheckOnlyOption);
+	}
+
+	public static bool showCultureZones(bool pCheckOnlyOption = false)
+	{
+		return MetaTypeLibrary.culture.isActive(pCheckOnlyOption);
+	}
+
+	public static bool showSpeciesZones(bool pCheckOnlyOption = false)
+	{
+		return MetaTypeLibrary.subspecies.isActive(pCheckOnlyOption);
+	}
+
+	public static bool showFamiliesZones(bool pCheckOnlyOption = false)
+	{
+		return MetaTypeLibrary.family.isActive(pCheckOnlyOption);
+	}
+
+	public static bool showLanguagesZones(bool pCheckOnlyOption = false)
+	{
+		return MetaTypeLibrary.language.isActive(pCheckOnlyOption);
+	}
+
+	public static bool showReligionZones(bool pCheckOnlyOption = false)
+	{
+		return MetaTypeLibrary.religion.isActive(pCheckOnlyOption);
+	}
+
+	public static bool showArmyZones(bool pCheckOnlyOption = false)
+	{
+		return MetaTypeLibrary.army.isActive(pCheckOnlyOption);
+	}
+}
+// --- End of File: Zones.cs ---
+

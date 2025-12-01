@@ -1,14 +1,19 @@
 using UnityEngine;
-using UnityEngine.UI;
+using HarmonyLib;
 
 namespace WorldBoxMultiplayer
 {
     public class CursorHandler : MonoBehaviour
     {
         public static CursorHandler Instance;
+        
         private GameObject _remoteCursorObj;
+        private SpriteRenderer _cursorRenderer;
         private Vector3 _targetPos;
+        
         private float _lastSendTime;
+        private Vector3 _lastSentPos;
+        private string _lastPowerID;
 
         void Awake() { Instance = this; }
 
@@ -16,17 +21,14 @@ namespace WorldBoxMultiplayer
         {
             _remoteCursorObj = new GameObject("RemoteCursor");
             _remoteCursorObj.transform.SetParent(this.transform);
-            var rend = _remoteCursorObj.AddComponent<SpriteRenderer>();
+            _cursorRenderer = _remoteCursorObj.AddComponent<SpriteRenderer>();
             
-            // Usiamo l'icona "Mano Divina" (godFinger) che è presente nel gioco
-            var godFinger = AssetManager.powers.get("god_finger");
-            if (godFinger != null) rend.sprite = godFinger.getIconSprite();
-            else rend.sprite = AssetManager.brush_library.get("circ_5").getSprite(); // Fallback
+            SetRemotePower("god_finger");
             
-            // Colore: Ciano Brillante (molto visibile)
-            rend.color = new Color(0f, 1f, 1f, 1f); 
-            rend.sortingLayerName = "EffectsTop"; 
-            rend.sortingOrder = 9999; // Sempre sopra tutto
+            // Distinct MAGENTA color so you know it's the other player
+            _cursorRenderer.color = new Color(1f, 0f, 1f, 1f); 
+            _cursorRenderer.sortingLayerName = "EffectsTop"; 
+            _cursorRenderer.sortingOrder = 9999;
             
             _remoteCursorObj.transform.localScale = new Vector3(1.5f, 1.5f, 1f);
             _remoteCursorObj.SetActive(false);
@@ -40,15 +42,34 @@ namespace WorldBoxMultiplayer
                 return;
             }
 
-            // Invia la mia posizione (20 volte al secondo per fluidità)
+            // Send my cursor position
             if (Time.time - _lastSendTime > 0.05f)
             {
                 Vector3 pos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
-                NetworkManager.Instance.SendCursorPos(pos.x, pos.y);
-                _lastSendTime = Time.time;
+                if (Vector3.Distance(pos, _lastSentPos) > 0.1f) 
+                {
+                    NetworkManager.Instance.SendCursorPos(pos.x, pos.y);
+                    _lastSentPos = pos;
+                    _lastSendTime = Time.time;
+                }
             }
 
-            // Muovi il cursore dell'amico
+            // Check current power
+            string currentPower = null;
+            if (PowerButtonSelector.instance != null && PowerButtonSelector.instance.selectedButton != null)
+            {
+                // Use Traverse to safely get godPower
+                GodPower power = Traverse.Create(PowerButtonSelector.instance.selectedButton).Field("godPower").GetValue<GodPower>();
+                if (power != null) currentPower = power.id;
+            }
+
+            if (currentPower != _lastPowerID)
+            {
+                _lastPowerID = currentPower;
+                NetworkManager.Instance.SendPowerSelection(string.IsNullOrEmpty(currentPower) ? "god_finger" : currentPower);
+            }
+
+            // Interpolate remote cursor
             if (_remoteCursorObj.activeSelf)
                 _remoteCursorObj.transform.position = Vector3.Lerp(_remoteCursorObj.transform.position, _targetPos, Time.deltaTime * 20f);
         }
@@ -57,6 +78,22 @@ namespace WorldBoxMultiplayer
         {
             if (!_remoteCursorObj.activeSelf) _remoteCursorObj.SetActive(true);
             _targetPos = new Vector3(x, y, -10f); 
+        }
+
+        public void SetRemotePower(string powerID)
+        {
+            Sprite icon = null;
+            GodPower power = AssetManager.powers.get(powerID);
+            
+            if (power != null) icon = power.getIconSprite();
+            
+            if (icon == null) 
+            {
+                GodPower finger = AssetManager.powers.get("god_finger");
+                if (finger != null) icon = finger.getIconSprite();
+            }
+
+            if (icon != null) _cursorRenderer.sprite = icon;
         }
     }
 }

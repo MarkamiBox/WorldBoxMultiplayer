@@ -8,10 +8,11 @@ namespace WorldBoxMultiplayer
     public class LockstepController : MonoBehaviour
     {
         public static LockstepController Instance;
-        
-        public const float FixedDeltaTime = 0.1f; 
+        public const float BaseDeltaTime = 0.1f; 
+        public float CurrentDeltaTime = 0.1f;
         public bool IsRunningManualStep = false; 
         public int CurrentTick = 0;
+        public bool DesyncDetected = false;
         
         private float _accumulatedTime = 0f;
         private MethodInfo _mapBoxUpdateMethod;
@@ -30,6 +31,45 @@ namespace WorldBoxMultiplayer
         }
 
         public void SetServerTick(int tick) { _serverTickLimit = tick; }
+        
+        public void UpdateTimeScale()
+        {
+            float speedVal = 1f;
+            try {
+                var field = Traverse.Create(Config.time_scale_asset).Field("timeScale");
+                if (field.FieldExists()) speedVal = field.GetValue<float>();
+                else {
+                     var fieldInt = Traverse.Create(Config.time_scale_asset).Field("speed_val");
+                     if (fieldInt.FieldExists()) speedVal = (float)fieldInt.GetValue<int>();
+                }
+            } catch { speedVal = 1f; }
+
+            if (speedVal < 1f) speedVal = 1f;
+            CurrentDeltaTime = BaseDeltaTime * speedVal;
+        }
+
+        public void CheckRemoteHash(int tick, long remoteHash)
+        {
+            long localHash = CalculateWorldHash();
+            if (localHash != remoteHash) {
+                DesyncDetected = true;
+                Debug.LogError($"DESYNC! Local:{localHash} Remote:{remoteHash}");
+                Config.paused = true;
+            } else DesyncDetected = false;
+        }
+
+        private long CalculateWorldHash()
+        {
+            if (World.world == null) return 0;
+            long hash = 0;
+            hash += World.world.units.Count * 1000;
+            hash += World.world.cities.Count * 1000000;
+            if (World.world.units.Count > 0) {
+                 var list = Traverse.Create(World.world.units).Field("simpleList").GetValue<List<Actor>>();
+                 if (list != null && list.Count > 0 && list[0] != null) hash += list[0].data.health;
+            }
+            return hash;
+        }
 
         public void NetworkUpdate()
         {
@@ -37,30 +77,25 @@ namespace WorldBoxMultiplayer
 
             if (_mapBoxUpdateMethod == null)
             {
-                if (MapBox.instance == null) return;
+                if (World.world == null) return;
                 _mapBoxUpdateMethod = AccessTools.Method(typeof(MapBox), "Update");
-                if (_mapBoxUpdateMethod == null)
-                {
-                    _initFailed = true;
-                    NetworkManager.Instance.Disconnect();
-                    return;
-                }
-                Debug.Log("[WorldBoxMultiplayer] Motore agganciato!");
+                if (_mapBoxUpdateMethod == null) { _initFailed = true; return; }
+                UpdateTimeScale();
             }
 
             _accumulatedTime += Time.deltaTime;
 
             int loops = 0;
-            while (_accumulatedTime >= FixedDeltaTime && loops < 5)
+            while (_accumulatedTime >= BaseDeltaTime && loops < 5)
             {
                 bool canAdvance = NetworkManager.Instance.IsHost() || CurrentTick < _serverTickLimit;
 
                 if (canAdvance)
                 {
                     RunGameTick();
-                    _accumulatedTime -= FixedDeltaTime;
-                    if (NetworkManager.Instance.IsHost())
-                        NetworkManager.Instance.SendTickSync(CurrentTick);
+                    _accumulatedTime -= BaseDeltaTime;
+                    if (CurrentTick % 50 == 0) NetworkManager.Instance.SendHash(CurrentTick, CalculateWorldHash());
+                    if (NetworkManager.Instance.IsHost()) NetworkManager.Instance.SendTickSync(CurrentTick);
                     loops++;
                 }
                 else break; 
@@ -71,28 +106,24 @@ namespace WorldBoxMultiplayer
         {
             if (PendingActions.ContainsKey(CurrentTick))
             {
-                foreach (var actionJson in PendingActions[CurrentTick])
-                    ExecuteAction(actionJson);
+                foreach (var actionJson in PendingActions[CurrentTick]) ExecuteAction(actionJson);
                 PendingActions.Remove(CurrentTick);
             }
 
-            if (MapBox.instance != null && !MapBox.instance.isPaused())
+            if (World.world != null && !World.world.isPaused())
             {
-                try 
-                {
+                try {
                     IsRunningManualStep = true; 
-                    _mapBoxUpdateMethod.Invoke(MapBox.instance, null);
+                    _mapBoxUpdateMethod.Invoke(World.world, null);
                     IsRunningManualStep = false; 
-                }
-                catch { IsRunningManualStep = false; }
+                } catch { IsRunningManualStep = false; }
             }
             CurrentTick++;
         }
 
         private void ExecuteAction(string json)
         {
-            try 
-            {
+            try {
                 string[] parts = json.Split(':');
                 if (parts.Length < 2) return;
 
@@ -101,31 +132,21 @@ namespace WorldBoxMultiplayer
                     string powerID = parts[1];
                     int x = int.Parse(parts[2]);
                     int y = int.Parse(parts[3]);
-                    WorldTile tile = MapBox.instance.GetTile(x, y);
-                    
+                    WorldTile tile = World.world.GetTile(x, y);
                     GodPower power = AssetManager.powers.get(powerID);
                     if (power != null && tile != null) 
                     {
                         IsRunningManualStep = true;
-
-                        if (power.click_action != null)
+                        if (power.click_action != null) power.click_action(tile, powerID);
+                        else if (!string.IsNullOrEmpty(power.drop_id)) 
                         {
-                            power.click_action(tile, powerID);
-                        }
-                        else if (!string.IsNullOrEmpty(power.drop_id))
-                        {
-                            // FIX: Accesso sicuro a drop_manager tramite Reflection
                             object dropManager = Traverse.Create(MapBox.instance).Field("drop_manager").GetValue();
-                            if (dropManager != null)
-                            {
-                                Traverse.Create(dropManager).Method("spawn", new object[] { tile, power.drop_id, -1f, -1f, -1L }).GetValue();
-                            }
+                             if (dropManager != null) Traverse.Create(dropManager).Method("spawn", new object[] { tile, power.drop_id, -1f, -1f, -1L }).GetValue();
                         }
                         IsRunningManualStep = false; 
                     }
                 }
-            }
-            catch {}
+            } catch {}
         }
     }
 }

@@ -1,71 +1,51 @@
 using HarmonyLib;
 using UnityEngine;
 using System.Reflection;
+using System.Collections.Generic;
 
 namespace WorldBoxMultiplayer
 {
-    // Patch unica e sicura: Blocca il loop principale
     [HarmonyPatch(typeof(MapBox), "Update")]
-    class MapBox_Update_Patch
-    {
-        static bool Prefix()
-        {
-            // Se è il LockstepController che sta simulando il turno, lasciamo passare
-            if (LockstepController.Instance != null && LockstepController.Instance.IsRunningManualStep)
-            {
-                return true; 
-            }
-
-            // Se siamo in multiplayer, gestiamo noi l'input e blocchiamo Unity
-            if (NetworkManager.Instance != null && NetworkManager.Instance.IsMultiplayerReady)
-            {
-                InputHandler.CheckInput();
-                return false; // Blocca l'aggiornamento normale
-            }
-
+    class MapBox_Update_Patch {
+        static bool Prefix() {
+            if (LockstepController.Instance?.IsRunningManualStep == true) return true; 
+            if (NetworkManager.Instance?.IsMultiplayerReady == true) { InputHandler.CheckInput(); return false; }
             return true;
         }
     }
 
-    // Gestore Input Ottimizzato
-    public static class InputHandler
-    {
-        private static float _nextActionTime = 0f;
-        // 0.05s = 20 azioni al secondo (ottimo per drag & drop fluido)
-        private const float ACTION_INTERVAL = 0.05f; 
+    [HarmonyPatch(typeof(Time), "deltaTime", MethodType.Getter)]
+    class Time_DeltaTime_Patch {
+        static void Postfix(ref float __result) {
+            if (LockstepController.Instance?.IsRunningManualStep == true) __result = LockstepController.Instance.CurrentDeltaTime;
+        }
+    }
 
-        public static void CheckInput()
-        {
-            // Se il mouse è premuto (Hold) e il timer è scaduto
-            if (Input.GetMouseButton(0) && Time.time >= _nextActionTime)
-            {
-                // Evita di cliccare attraverso le finestre UI
-                if (!UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
-                {
+    public static class InputHandler {
+        private static float _nextActionTime = 0f;
+        private static HashSet<string> _bannedPowers = new HashSet<string>() { "god_finger", "force_push", "heat_ray", "tornado", "magnet" };
+        
+        public static void CheckInput() {
+            if (Input.GetMouseButton(0) && Time.time >= _nextActionTime) {
+                if (!UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject()) {
                     HandleClick();
-                    _nextActionTime = Time.time + ACTION_INTERVAL;
+                    _nextActionTime = Time.time + 0.03f;
                 }
             }
         }
-
-        static void HandleClick()
-        {
+        
+        static void HandleClick() {
             var selector = PowerButtonSelector.instance;
             if (selector == null || selector.selectedButton == null) return;
-
-            // Ottiene il potere selezionato in modo sicuro
-            GodPower power = selector.selectedButton.godPower;
-            if (power == null) return;
-
+            
+            GodPower power = Traverse.Create(selector.selectedButton).Field("godPower").GetValue<GodPower>();
+            if (power == null || _bannedPowers.Contains(power.id)) return;
+            
             Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
-            WorldTile tile = World.world.GetTile((int)mousePos.x, (int)mousePos.y);
-
-            if (tile != null)
-            {
-                // Invia il comando alla rete
-                string packet = $"POWER:{power.id}:{tile.x}:{tile.y}";
-                NetworkManager.Instance.SendAction(packet);
-            }
+            WorldTile tile = MapBox.instance.GetTile((int)mousePos.x, (int)mousePos.y);
+            
+            if (tile != null) 
+                NetworkManager.Instance.SendAction($"POWER:{power.id}:{tile.x}:{tile.y}");
         }
     }
 }
