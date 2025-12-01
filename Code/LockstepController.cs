@@ -9,9 +9,9 @@ namespace WorldBoxMultiplayer
     {
         public static LockstepController Instance;
         
-        // 0.05f = 20 Tick al secondo (molto più fluido di 0.1f)
-        public const float BaseDeltaTime = 0.05f; 
-        public float CurrentDeltaTime = 0.05f;
+        // 0.1f = 10 Tick al secondo (Standard per Lockstep)
+        public const float BaseDeltaTime = 0.1f; 
+        public float CurrentDeltaTime = 0.1f;
 
         public bool IsRunningManualStep = false; 
         public int CurrentTick = 0;
@@ -88,6 +88,9 @@ namespace WorldBoxMultiplayer
         }
 
         private void RunGameTick() {
+            // DETERMINISMO: Seed RNG con il tick corrente
+            UnityEngine.Random.InitState(CurrentTick);
+            
             // Esegui Azioni (Inclusi quelli passati che potrebbero essere arrivati in ritardo)
             List<int> ticksToRemove = new List<int>();
             foreach (var kvp in PendingActions) {

@@ -67,7 +67,7 @@ namespace WorldBoxMultiplayer
             if (Input.GetMouseButton(0) && Time.time >= _nextActionTime) {
                 if (!UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject()) {
                     HandleClick();
-                    _nextActionTime = Time.time + 0.05f; // 20 click/sec
+                    _nextActionTime = Time.time + 0.1f; // 10 click/sec
                 }
             }
         }
