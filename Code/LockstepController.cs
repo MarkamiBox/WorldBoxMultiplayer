@@ -8,8 +8,11 @@ namespace WorldBoxMultiplayer
     public class LockstepController : MonoBehaviour
     {
         public static LockstepController Instance;
-        public const float BaseDeltaTime = 0.05f; // 20 Ticks/Second for smoother gameplay
+        
+        // 0.05f = 20 Tick al secondo (molto più fluido di 0.1f)
+        public const float BaseDeltaTime = 0.05f; 
         public float CurrentDeltaTime = 0.05f;
+
         public bool IsRunningManualStep = false; 
         public int CurrentTick = 0;
         public bool DesyncDetected = false;
@@ -42,6 +45,7 @@ namespace WorldBoxMultiplayer
             long localHash = CalculateWorldHash();
             if (localHash != remoteHash) {
                 DesyncDetected = true;
+                Debug.LogError($"DESYNC! Tick:{tick}");
             } else DesyncDetected = false;
         }
 
@@ -50,6 +54,10 @@ namespace WorldBoxMultiplayer
             long hash = 0;
             hash += World.world.units.Count * 1000;
             hash += World.world.cities.Count * 1000000;
+            if (World.world.units.Count > 0) {
+                 var list = Traverse.Create(World.world.units).Field("simpleList").GetValue<List<Actor>>();
+                 if (list != null && list.Count > 0 && list[0] != null) hash += list[0].data.health;
+            }
             return hash;
         }
 
@@ -58,71 +66,52 @@ namespace WorldBoxMultiplayer
 
             if (_mapBoxUpdateMethod == null) {
                 if (World.world == null) return;
-                
-                // Metodo di ricerca migliorato
-                _mapBoxUpdateMethod = typeof(MapBox).GetMethod("Update", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
-                
-                if (_mapBoxUpdateMethod == null) { 
-                    _initFailed = true; 
-                    Debug.LogError("[Lockstep] CRITICAL: MapBox.Update() NOT FOUND! Game will freeze.");
-                    return; 
-                }
+                _mapBoxUpdateMethod = AccessTools.Method(typeof(MapBox), "Update");
+                if (_mapBoxUpdateMethod == null) { _initFailed = true; return; }
                 UpdateTimeScale();
-                Debug.Log("[Lockstep] Engine Hooked Successfully.");
             }
 
             _accumulatedTime += Time.deltaTime;
+
             int loops = 0;
-            // Allow up to 10 loops to catch up if lagging
-            while (_accumulatedTime >= BaseDeltaTime && loops < 10) {
-                // Host is the authority, so it can always advance. Client waits for server tick.
+            while (_accumulatedTime >= BaseDeltaTime && loops < 5) {
                 bool canAdvance = NetworkManager.Instance.IsHost() || CurrentTick < _serverTickLimit;
-                
                 if (canAdvance) {
                     RunGameTick();
                     _accumulatedTime -= BaseDeltaTime;
-                    
-                    // Sync hash less frequently to save bandwidth (every 100 ticks = 5 seconds)
-                    if (CurrentTick % 100 == 0) NetworkManager.Instance.SendHash(CurrentTick, CalculateWorldHash());
-                    
-                    // Host sends tick sync every tick to keep clients smooth
+                    if (CurrentTick % 50 == 0) NetworkManager.Instance.SendHash(CurrentTick, CalculateWorldHash());
                     if (NetworkManager.Instance.IsHost()) NetworkManager.Instance.SendTickSync(CurrentTick);
-                    
                     loops++;
-                } else {
-                    // Client is ahead of server, wait.
-                    _accumulatedTime = 0; // Prevent accumulation while waiting
-                    break; 
-                }
+                } else break; 
             }
         }
 
         private void RunGameTick() {
+            // Esegui Azioni
             if (PendingActions.ContainsKey(CurrentTick)) {
                 foreach (var actionJson in PendingActions[CurrentTick]) ExecuteAction(actionJson);
                 PendingActions.Remove(CurrentTick);
             }
+
+            // Fai avanzare il mondo (SIMULAZIONE)
             if (World.world != null) {
-                if (!World.world.isPaused()) {
-                    try {
-                        IsRunningManualStep = true; 
-                        _mapBoxUpdateMethod.Invoke(MapBox.instance, null);
-                        IsRunningManualStep = false; 
-                    } catch (System.Exception e) { 
-                        IsRunningManualStep = false; 
-                        Debug.LogError($"[Lockstep] Game Tick Error: {e.Message}\n{e.StackTrace}");
-                    }
-                } else {
-                    // Debug.Log("[Lockstep] World is Paused"); // Uncomment if needed
-                }
+                try {
+                    // IL TRUCCO: Togliamo momentaneamente la pausa per far muovere le unità
+                    Config.paused = false;
+                    IsRunningManualStep = true; 
+                    
+                    // Chiamiamo Update (che ora vedrà paused=false e muoverà le cose)
+                    _mapBoxUpdateMethod.Invoke(MapBox.instance, null);
+                    
+                    IsRunningManualStep = false; 
+                    Config.paused = true; // Rimettiamo subito la pausa
+                } catch { IsRunningManualStep = false; Config.paused = true; }
             }
             CurrentTick++;
         }
 
         private void ExecuteAction(string json) {
-            // ... (Codice uguale a prima) ...
-            // Per brevità non lo ripeto tutto, ma assicurati di copiare la logica POWER dallo script precedente
-             try {
+            try {
                 string[] parts = json.Split(':');
                 if (parts.Length < 2) return;
                 if (parts[0] == "POWER") {
