@@ -23,97 +23,69 @@ namespace WorldBoxMultiplayer
 
         void Awake() { Instance = this; }
 
-        public void AddPendingAction(int tick, string action)
-        {
-            if (!PendingActions.ContainsKey(tick))
-                PendingActions[tick] = new List<string>();
+        public void AddPendingAction(int tick, string action) {
+            if (!PendingActions.ContainsKey(tick)) PendingActions[tick] = new List<string>();
             PendingActions[tick].Add(action);
         }
-
         public void SetServerTick(int tick) { _serverTickLimit = tick; }
-        
-        public void UpdateTimeScale()
-        {
+        public void UpdateTimeScale() {
             float speedVal = 1f;
             try {
-                var field = Traverse.Create(Config.time_scale_asset).Field("timeScale");
-                if (field.FieldExists()) speedVal = field.GetValue<float>();
-                else {
-                     var fieldInt = Traverse.Create(Config.time_scale_asset).Field("speed_val");
-                     if (fieldInt.FieldExists()) speedVal = (float)fieldInt.GetValue<int>();
-                }
+                var field = Traverse.Create(Config.time_scale_asset).Field("speed_val");
+                if (field.FieldExists()) speedVal = (float)field.GetValue<int>();
             } catch { speedVal = 1f; }
-
-            if (speedVal < 1f) speedVal = 1f;
             CurrentDeltaTime = BaseDeltaTime * speedVal;
         }
 
-        public void CheckRemoteHash(int tick, long remoteHash)
-        {
+        public void CheckRemoteHash(int tick, long remoteHash) {
             long localHash = CalculateWorldHash();
             if (localHash != remoteHash) {
                 DesyncDetected = true;
-                Debug.LogError($"DESYNC! Local:{localHash} Remote:{remoteHash}");
-                Config.paused = true;
+                Debug.LogError($"DESYNC: Local {localHash} != Remote {remoteHash}");
             } else DesyncDetected = false;
         }
 
-        private long CalculateWorldHash()
-        {
-            if (World.world == null || World.world.units == null || World.world.cities == null) return 0;
+        private long CalculateWorldHash() {
+            if (World.world == null) return 0;
             long hash = 0;
             hash += World.world.units.Count * 1000;
             hash += World.world.cities.Count * 1000000;
-            
-            try {
-                var list = Traverse.Create(World.world.units).Field("simpleList").GetValue<List<Actor>>();
-                if (list != null && list.Count > 0 && list[0] != null) hash += list[0].data.health;
-            } catch {}
-            
+            if (World.world.units.Count > 0) {
+                 var list = Traverse.Create(World.world.units).Field("simpleList").GetValue<List<Actor>>();
+                 if (list != null && list.Count > 0 && list[0] != null) hash += list[0].data.health;
+            }
             return hash;
         }
 
-        public void NetworkUpdate()
-        {
-            if (!NetworkManager.Instance.IsConnected || _initFailed) return;
+        public void NetworkUpdate() {
+            if (!NetworkManager.Instance.IsConnected || _initFailed || !NetworkManager.Instance.IsMapLoaded) return;
 
-            if (_mapBoxUpdateMethod == null)
-            {
+            if (_mapBoxUpdateMethod == null) {
                 if (World.world == null) return;
                 _mapBoxUpdateMethod = AccessTools.Method(typeof(MapBox), "Update");
                 if (_mapBoxUpdateMethod == null) { _initFailed = true; return; }
                 UpdateTimeScale();
             }
-
             _accumulatedTime += Time.deltaTime;
-
             int loops = 0;
-            while (_accumulatedTime >= BaseDeltaTime && loops < 5)
-            {
+            while (_accumulatedTime >= BaseDeltaTime && loops < 5) {
                 bool canAdvance = NetworkManager.Instance.IsHost() || CurrentTick < _serverTickLimit;
-
-                if (canAdvance)
-                {
+                if (canAdvance) {
                     RunGameTick();
                     _accumulatedTime -= BaseDeltaTime;
                     if (CurrentTick % 50 == 0) NetworkManager.Instance.SendHash(CurrentTick, CalculateWorldHash());
                     if (NetworkManager.Instance.IsHost()) NetworkManager.Instance.SendTickSync(CurrentTick);
                     loops++;
-                }
-                else break; 
+                } else break; 
             }
         }
 
-        private void RunGameTick()
-        {
-            if (PendingActions.ContainsKey(CurrentTick))
-            {
+        private void RunGameTick() {
+            if (PendingActions.ContainsKey(CurrentTick)) {
                 foreach (var actionJson in PendingActions[CurrentTick]) ExecuteAction(actionJson);
                 PendingActions.Remove(CurrentTick);
             }
-
-            if (World.world != null && !World.world.isPaused())
-            {
+            if (World.world != null && !World.world.isPaused()) {
                 try {
                     IsRunningManualStep = true; 
                     _mapBoxUpdateMethod.Invoke(World.world, null);
@@ -123,25 +95,20 @@ namespace WorldBoxMultiplayer
             CurrentTick++;
         }
 
-        private void ExecuteAction(string json)
-        {
+        private void ExecuteAction(string json) {
             try {
                 string[] parts = json.Split(':');
                 if (parts.Length < 2) return;
-
-                if (parts[0] == "POWER")
-                {
+                if (parts[0] == "POWER") {
                     string powerID = parts[1];
                     int x = int.Parse(parts[2]);
                     int y = int.Parse(parts[3]);
                     WorldTile tile = World.world.GetTile(x, y);
                     GodPower power = AssetManager.powers.get(powerID);
-                    if (power != null && tile != null) 
-                    {
+                    if (power != null && tile != null) {
                         IsRunningManualStep = true;
                         if (power.click_action != null) power.click_action(tile, powerID);
-                        else if (!string.IsNullOrEmpty(power.drop_id)) 
-                        {
+                        else if (!string.IsNullOrEmpty(power.drop_id)) {
                             object dropManager = Traverse.Create(MapBox.instance).Field("drop_manager").GetValue();
                              if (dropManager != null) Traverse.Create(dropManager).Method("spawn", new object[] { tile, power.drop_id, -1f, -1f, -1L }).GetValue();
                         }

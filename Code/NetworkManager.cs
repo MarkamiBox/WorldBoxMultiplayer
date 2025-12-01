@@ -13,13 +13,17 @@ namespace WorldBoxMultiplayer
     {
         public static NetworkManager Instance;
         public bool IsConnected = false;
+        
+        // Vero solo se connessi E abbiamo caricato la mappa
+        public bool IsMapLoaded = false;
+
         public bool IsMultiplayerReady { get { return IsConnected && _stream != null; } }
 
         private TcpClient _client;
         private TcpListener _server;
         private NetworkStream _stream;
         private bool _isHost = false;
-        private bool _shouldSyncMap = false;
+        private bool _shouldStartTransfer = false;
 
         private Dictionary<string, bool> _lastLawsState = new Dictionary<string, bool>();
         private string _lastSpeed = "";
@@ -35,6 +39,7 @@ namespace WorldBoxMultiplayer
                 _server.BeginAcceptTcpClient(OnClientConnected, null);
                 _isHost = true;
                 IsConnected = true; 
+                IsMapLoaded = true; // L'Host ha già la mappa
                 StartCoroutine(SyncCheckerRoutine());
                 Debug.Log("[Multiplayer] Server Started.");
             } catch (Exception e) { Debug.LogError("Host Error: " + e.Message); }
@@ -48,17 +53,28 @@ namespace WorldBoxMultiplayer
                 _client.Connect(ip, port);
                 _stream = _client.GetStream();
                 IsConnected = true;
+                IsMapLoaded = false; // Client deve aspettare la mappa!
                 StartCoroutine(SyncCheckerRoutine());
                 Debug.Log("[Multiplayer] Client Connected!");
             } catch (Exception e) { Debug.LogError("Client Error: " + e.Message); }
         }
 
-        // Polling loop to check for changes (Safer than patching)
+        private void OnClientConnected(IAsyncResult ar)
+        {
+            try {
+                _client = _server.EndAcceptTcpClient(ar);
+                _client.NoDelay = true;
+                _stream = _client.GetStream();
+                Debug.Log("[Multiplayer] Client joined! Preparazione invio mappa...");
+                _shouldStartTransfer = true; // Segnala al main thread di inviare
+            } catch (Exception e) { Debug.LogError("Conn Error: " + e.Message); }
+        }
+
         private IEnumerator SyncCheckerRoutine()
         {
             while (true)
             {
-                if (IsMultiplayerReady)
+                if (IsMultiplayerReady && IsMapLoaded) // Solo se mappa caricata
                 {
                     CheckLaws();
                     CheckSpeed();
@@ -68,13 +84,13 @@ namespace WorldBoxMultiplayer
             }
         }
 
+        // ... (Codice CheckSpeed, CheckEra, CheckLaws uguale a prima) ...
         private void CheckSpeed()
         {
             if (Config.time_scale_asset == null) return;
             string current = Config.time_scale_asset.id;
             if (_lastSpeed != current) { _lastSpeed = current; SendSpeedChange(current); }
         }
-
         private void CheckEra()
         {
             object activeEraObj = Traverse.Create(World.world.era_manager).Field("active_era").GetValue();
@@ -82,7 +98,6 @@ namespace WorldBoxMultiplayer
             string current = Traverse.Create(activeEraObj).Field("id").GetValue<string>();
             if (_lastEra != current) { _lastEra = current; SendEraChange(current); }
         }
-
         private void CheckLaws()
         {
             if (World.world?.world_laws?.dict == null) return;
@@ -98,47 +113,27 @@ namespace WorldBoxMultiplayer
             }
         }
 
-        private void OnClientConnected(IAsyncResult ar)
-        {
-            try {
-                if (_server == null) return;
-                _client = _server.EndAcceptTcpClient(ar);
-                if (_client == null) return;
-                
-                _client.NoDelay = true;
-                _stream = _client.GetStream();
-                _shouldSyncMap = true; 
-                Debug.Log("[Multiplayer] Client Connected to Host!");
-            } catch (Exception e) { Debug.LogError("Conn Error: " + e.Message); }
-        }
-
-        public void SendRaw(string message) { 
-            if (_stream == null || _client == null || !_client.Connected) return;
-            try { 
-                byte[] msg = Encoding.UTF8.GetBytes(message); 
-                _stream.Write(msg, 0, msg.Length); 
-            } catch (Exception e) { 
-                Debug.LogError("SendRaw Error: " + e.Message); 
-                Disconnect(); 
-            } 
-        }
-        public void SendAction(string actionData) { if (!IsMultiplayerReady) return; int targetTick = LockstepController.Instance.CurrentTick + 2; SendRaw($"G|{targetTick}|{actionData}\n"); }
-        public void SendNameChange(string type, long id, string newName) { if (!IsMultiplayerReady) return; string name64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(newName)); SendRaw($"N|{type}|{id}|{name64}\n"); }
-        public void SendKingdomCustomization(long id, int colorId, int bannerId) { if (!IsMultiplayerReady) return; SendRaw($"K|{id}|{colorId}|{bannerId}\n"); }
-        public void SendEraChange(string eraID) { if (!IsMultiplayerReady) return; SendRaw($"A|{eraID}\n"); }
-        public void SendPowerSelection(string powerID) { if (!IsMultiplayerReady) return; SendRaw($"P|{powerID}\n"); }
+        public void SendRaw(string message) { try { byte[] msg = Encoding.UTF8.GetBytes(message); _stream.Write(msg, 0, msg.Length); } catch {} }
+        
+        // Invio azioni e sync (Funzionano solo se connessi)
+        public void SendAction(string actionData) { if (IsMultiplayerReady) { int targetTick = LockstepController.Instance.CurrentTick + 2; SendRaw($"G|{targetTick}|{actionData}\n"); } }
+        public void SendNameChange(string type, long id, string newName) { if (IsMultiplayerReady) { string name64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(newName)); SendRaw($"N|{type}|{id}|{name64}\n"); } }
+        public void SendKingdomCustomization(long id, int colorId, int bannerId) { if (IsMultiplayerReady) SendRaw($"K|{id}|{colorId}|{bannerId}\n"); }
+        public void SendEraChange(string eraID) { if (IsMultiplayerReady) SendRaw($"A|{eraID}\n"); }
+        public void SendPowerSelection(string powerID) { if (IsMultiplayerReady) SendRaw($"P|{powerID}\n"); }
         public void SendTickSync(int tick) { if(IsMultiplayerReady) SendRaw($"T|{tick}\n"); }
         public void SendCursorPos(float x, float y) { if(IsMultiplayerReady) SendRaw($"C|{x:F1}|{y:F1}\n"); }
         public void SendLawToggle(string id, bool state) { if(IsMultiplayerReady) SendRaw($"L|{id}|{state}\n"); }
         public void SendSpeedChange(string id) { if(IsMultiplayerReady) SendRaw($"S|{id}\n"); }
         public void SendHash(int tick, long hash) { if(IsMultiplayerReady) SendRaw($"H|{tick}|{hash}\n"); }
         public void SendDisconnect() { if(IsMultiplayerReady) SendRaw("D\n"); }
-        public void SendRequestMap() { if(IsMultiplayerReady) SendRaw("R\n"); }
-        public void RequestResync() { if (_isHost) SaveTransferHandler.Instance.StartTransfer(); else SendRequestMap(); }
+        
+        public void RequestResync() { if (_isHost) SaveTransferHandler.Instance.StartTransfer(); }
 
         void Update()
         {
-            if (_shouldSyncMap) { SaveTransferHandler.Instance.StartTransfer(); _shouldSyncMap = false; }
+            if (_shouldStartTransfer) { SaveTransferHandler.Instance.StartTransfer(); _shouldStartTransfer = false; }
+            
             if (!IsMultiplayerReady) return;
 
             if (_stream.DataAvailable)
@@ -156,25 +151,33 @@ namespace WorldBoxMultiplayer
                         if (parts.Length < 1) continue;
 
                         string type = parts[0];
+
+                        // Priorità alta: Trasferimento file (funziona anche se MapLoaded = false)
                         if (type == "FILE_START") SaveTransferHandler.Instance.OnReceiveStart(int.Parse(parts[1]), int.Parse(parts[2]));
                         else if (type == "FILE_DATA") SaveTransferHandler.Instance.OnReceiveChunk(int.Parse(parts[1]), parts[2]);
-                        else if (type == "G" && parts.Length >= 3) LockstepController.Instance.AddPendingAction(int.Parse(parts[1]), parts[2]);
-                        else if (type == "T") LockstepController.Instance.SetServerTick(int.Parse(parts[1]));
-                        else if (type == "C") { if (CursorHandler.Instance) CursorHandler.Instance.UpdateRemoteCursor(float.Parse(parts[1]), float.Parse(parts[2])); }
-                        else if (type == "P" && CursorHandler.Instance) CursorHandler.Instance.SetRemotePower(parts[1]);
-                        else if (type == "L") WorldBoxMultiplayer.instance.SetLaw(parts[1], bool.Parse(parts[2]));
-                        else if (type == "S") WorldBoxMultiplayer.instance.SetSpeed(parts[1]);
-                        else if (type == "H") LockstepController.Instance.CheckRemoteHash(int.Parse(parts[1]), long.Parse(parts[2]));
-                        else if (type == "N") WorldBoxMultiplayer.instance.SetName(parts[1], long.Parse(parts[2]), parts[3]);
-                        else if (type == "A") WorldBoxMultiplayer.instance.SetEra(parts[1]);
-                        else if (type == "K") WorldBoxMultiplayer.instance.SetKingdomData(long.Parse(parts[1]), int.Parse(parts[2]), int.Parse(parts[3]));
-                        else if (type == "D") { Debug.Log("[Sync] Partner disconnected."); Disconnect(); }
-                        else if (type == "R" && _isHost) { Debug.Log("[Sync] Client requested map."); SaveTransferHandler.Instance.StartTransfer(); }
+                        
+                        // Comandi di gioco (Solo se la mappa è caricata!)
+                        else if (IsMapLoaded)
+                        {
+                            if (type == "G" && parts.Length >= 3) LockstepController.Instance.AddPendingAction(int.Parse(parts[1]), parts[2]);
+                            else if (type == "T") LockstepController.Instance.SetServerTick(int.Parse(parts[1]));
+                            else if (type == "C") { if (CursorHandler.Instance) CursorHandler.Instance.UpdateRemoteCursor(float.Parse(parts[1]), float.Parse(parts[2])); }
+                            else if (type == "P" && CursorHandler.Instance) CursorHandler.Instance.SetRemotePower(parts[1]);
+                            else if (type == "L") WorldBoxMultiplayer.instance.SetLaw(parts[1], bool.Parse(parts[2]));
+                            else if (type == "S") WorldBoxMultiplayer.instance.SetSpeed(parts[1]);
+                            else if (type == "H") LockstepController.Instance.CheckRemoteHash(int.Parse(parts[1]), long.Parse(parts[2]));
+                            else if (type == "N") WorldBoxMultiplayer.instance.SetName(parts[1], long.Parse(parts[2]), parts[3]);
+                            else if (type == "A") WorldBoxMultiplayer.instance.SetEra(parts[1]);
+                            else if (type == "K") WorldBoxMultiplayer.instance.SetKingdomData(long.Parse(parts[1]), int.Parse(parts[2]), int.Parse(parts[3]));
+                        }
+                        
+                        if (type == "D") { Debug.Log("[Sync] Partner disconnected."); Disconnect(); }
                     }
                 } catch (Exception e) { Debug.LogError("NetRead: " + e.Message); }
             }
             
-            LockstepController.Instance.NetworkUpdate();
+            // Aggiorna il gioco solo se la mappa è caricata
+            if (IsMapLoaded) LockstepController.Instance.NetworkUpdate();
         }
 
         public void Disconnect()
@@ -190,6 +193,7 @@ namespace WorldBoxMultiplayer
             _client = null;
             _server = null;
             _isHost = false;
+            IsMapLoaded = false;
         }
         
         public bool IsHost() { return _isHost; }
