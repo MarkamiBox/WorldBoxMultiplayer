@@ -108,6 +108,7 @@ namespace WorldBoxMultiplayer
                 _client.NoDelay = true;
                 _stream = _client.GetStream();
                 _shouldSyncMap = true; 
+                Debug.Log("[Multiplayer] Client Connected to Host!");
             } catch (Exception e) { Debug.LogError("Conn Error: " + e.Message); }
         }
 
@@ -132,7 +133,8 @@ namespace WorldBoxMultiplayer
         public void SendSpeedChange(string id) { if(IsMultiplayerReady) SendRaw($"S|{id}\n"); }
         public void SendHash(int tick, long hash) { if(IsMultiplayerReady) SendRaw($"H|{tick}|{hash}\n"); }
         public void SendDisconnect() { if(IsMultiplayerReady) SendRaw("D\n"); }
-        public void RequestResync() { if (_isHost) SaveTransferHandler.Instance.StartTransfer(); }
+        public void SendRequestMap() { if(IsMultiplayerReady) SendRaw("R\n"); }
+        public void RequestResync() { if (_isHost) SaveTransferHandler.Instance.StartTransfer(); else SendRequestMap(); }
 
         void Update()
         {
@@ -167,6 +169,7 @@ namespace WorldBoxMultiplayer
                         else if (type == "A") WorldBoxMultiplayer.instance.SetEra(parts[1]);
                         else if (type == "K") WorldBoxMultiplayer.instance.SetKingdomData(long.Parse(parts[1]), int.Parse(parts[2]), int.Parse(parts[3]));
                         else if (type == "D") { Debug.Log("[Sync] Partner disconnected."); Disconnect(); }
+                        else if (type == "R" && _isHost) { Debug.Log("[Sync] Client requested map."); SaveTransferHandler.Instance.StartTransfer(); }
                     }
                 } catch (Exception e) { Debug.LogError("NetRead: " + e.Message); }
             }
