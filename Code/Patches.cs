@@ -8,8 +8,14 @@ namespace WorldBoxMultiplayer
     [HarmonyPatch(typeof(MapBox), "Update")]
     class MapBox_Update_Patch {
         static bool Prefix() {
-            if (LockstepController.Instance?.IsRunningManualStep == true) return true; 
-            if (NetworkManager.Instance?.IsMultiplayerReady == true) { InputHandler.CheckInput(); return false; }
+            if (LockstepController.Instance == null) return true;
+            if (LockstepController.Instance.IsRunningManualStep) return true; 
+            
+            // If multiplayer is ready, we block the normal update and let LockstepController handle it
+            if (NetworkManager.Instance != null && NetworkManager.Instance.IsMultiplayerReady) { 
+                InputHandler.CheckInput(); 
+                return false; 
+            }
             return true;
         }
     }

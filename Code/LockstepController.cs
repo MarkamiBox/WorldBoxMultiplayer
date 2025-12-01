@@ -14,7 +14,7 @@ namespace WorldBoxMultiplayer
         public int CurrentTick = 0;
         public bool DesyncDetected = false;
         
-        private float _accumulatedTime = 0f;
+        public float _accumulatedTime = 0f;
         private MethodInfo _mapBoxUpdateMethod;
         private bool _initFailed = false;
         private int _serverTickLimit = 0; 

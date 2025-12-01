@@ -120,6 +120,17 @@ namespace WorldBoxMultiplayer
                     }
                 }
             }
+            
+            // Debug Info
+            GUI.color = Color.cyan;
+            string debugInfo = $"Tick: {LockstepController.Instance.CurrentTick}\n" +
+                               $"Paused: {Config.paused}\n" +
+                               $"TimeScale: {Time.timeScale:F2}\n" +
+                               $"MapLoaded: {NetworkManager.Instance.IsMapLoaded}\n" +
+                               $"AccumTime: {LockstepController.Instance._accumulatedTime:F2}";
+            GUI.Label(new Rect(10, 400, 260, 100), debugInfo);
+            GUI.color = Color.white;
+
             GUI.DragWindow();
         }
 
