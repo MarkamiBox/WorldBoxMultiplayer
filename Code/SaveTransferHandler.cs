@@ -76,12 +76,40 @@ namespace WorldBoxMultiplayer
             return false;
         }
 
+        private string GetSavePath(int slot)
+        {
+            try {
+                Type saveMgrType = AccessTools.TypeByName("SaveManager");
+                if (saveMgrType != null) {
+                    UnityEngine.Object instance = UnityEngine.Object.FindObjectOfType(saveMgrType);
+                    if (instance != null) {
+                        var trav = Traverse.Create(instance);
+                        // Try getSlotPathWbox first (most specific)
+                        if (trav.Method("getSlotPathWbox", new object[] { slot }).MethodExists()) {
+                            string p = trav.Method("getSlotPathWbox", new object[] { slot }).GetValue<string>();
+                            Debug.Log($"[Sync] Game returned path (Wbox): {p}");
+                            return p;
+                        }
+                        // Try getSlotSavePath
+                        if (trav.Method("getSlotSavePath", new object[] { slot }).MethodExists()) {
+                            string p = trav.Method("getSlotSavePath", new object[] { slot }).GetValue<string>();
+                            Debug.Log($"[Sync] Game returned path (SavePath): {p}");
+                            return p;
+                        }
+                    }
+                }
+            } catch (Exception e) { Debug.LogError($"[Sync] Path Reflection Error: {e.Message}"); }
+
+            // Fallback
+            return Path.Combine(Application.persistentDataPath, "saves", "save" + slot + ".wbox");
+        }
+
         private IEnumerator WaitForFileAndSend()
         {
             string path = GetSavePath(SYNC_SLOT_ID);
             Debug.Log($"[Sync] 2. Looking for save file at: {path}");
 
-            float timeout = 10f; // Increased timeout
+            float timeout = 10f; 
             bool fileFound = false;
             
             while (timeout > 0)
@@ -101,9 +129,21 @@ namespace WorldBoxMultiplayer
 
             if (!fileFound)
             {
-                Debug.LogError("[Sync] FATAL: Save file not found or too old. Disconnecting.");
+                Debug.LogError($"[Sync] FATAL: Save file not found at {path}");
+                
+                // Debug: List files in directory
+                try {
+                    string dir = Path.GetDirectoryName(path);
+                    if (Directory.Exists(dir)) {
+                        Debug.Log($"[Sync] Listing files in {dir}:");
+                        foreach (var f in Directory.GetFiles(dir)) Debug.Log($" - {Path.GetFileName(f)}");
+                    } else {
+                        Debug.LogError($"[Sync] Directory does not exist: {dir}");
+                    }
+                } catch {}
+
                 IsTransferring = false;
-                NetworkManager.Instance.Disconnect(); // Disconnect on failure
+                NetworkManager.Instance.Disconnect(); 
                 yield break;
             }
 
@@ -122,12 +162,6 @@ namespace WorldBoxMultiplayer
             Debug.Log($"[Sync] 4. Compressed to {compressedData.Length} bytes. Sending...");
 
             StartCoroutine(SendFileRoutine(compressedData));
-        }
-
-        private string GetSavePath(int slot)
-        {
-            // Costruisci il percorso standard: .../saves/save15.wbox
-            return Path.Combine(Application.persistentDataPath, "saves", "save" + slot + ".wbox");
         }
 
         private IEnumerator SendFileRoutine(byte[] data)
