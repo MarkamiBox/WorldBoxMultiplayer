@@ -24,17 +24,26 @@ namespace WorldBoxMultiplayer
             IsTransferring = true;
             Progress = 0f;
             
-            // Reflection for SaveManager.saveGame
-            var saveMgr = Type.GetType("SaveManager");
-            if (saveMgr != null) {
-                var method = saveMgr.GetMethod("saveGame", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static) ?? saveMgr.GetMethod("SaveGame", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-                method?.Invoke(null, new object[] { SYNC_SLOT });
-            }
+            Debug.Log("[Sync] Starting Save Transfer...");
+            // Use Traverse to call SaveManager.saveGame(string)
+            try {
+                var trav = Traverse.Create(Type.GetType("SaveManager"));
+                if (trav.Method("saveGame", new object[] { SYNC_SLOT }).MethodExists()) 
+                    trav.Method("saveGame", new object[] { SYNC_SLOT }).GetValue();
+                else 
+                    Debug.LogError("[Sync] SaveManager.saveGame not found!");
+            } catch (Exception e) { Debug.LogError("[Sync] Save Error: " + e.Message); }
             
             string path = Application.persistentDataPath + "/saves/" + SYNC_SLOT + ".wbox";
-            if (!File.Exists(path)) { IsTransferring = false; return; }
+            if (!File.Exists(path)) { 
+                Debug.LogError("[Sync] Save file not found at: " + path);
+                IsTransferring = false; 
+                return; 
+            }
+            
             byte[] rawData = File.ReadAllBytes(path);
             byte[] compressedData = Compress(rawData);
+            Debug.Log($"[Sync] Sending {compressedData.Length} bytes...");
             StartCoroutine(SendFileRoutine(compressedData));
         }
 
@@ -54,6 +63,7 @@ namespace WorldBoxMultiplayer
                 if (i % 10 == 0) yield return null;
             }
             IsTransferring = false;
+            Debug.Log("[Sync] Transfer Complete.");
         }
 
         public void OnReceiveStart(int totalChunks, int totalBytes)
@@ -64,6 +74,7 @@ namespace WorldBoxMultiplayer
             _receivedCount = 0;
             Progress = 0f;
             Config.paused = true;
+            Debug.Log($"[Sync] Receiving {totalBytes} bytes in {totalChunks} chunks...");
         }
 
         public void OnReceiveChunk(int index, string dataB64)
@@ -79,6 +90,7 @@ namespace WorldBoxMultiplayer
         private void FinishReception()
         {
             IsTransferring = false;
+            Debug.Log("[Sync] Reception Complete. Processing...");
             using (MemoryStream ms = new MemoryStream()) {
                 for (int i = 0; i < _totalChunks; i++) if (_receivedChunks.ContainsKey(i)) ms.Write(_receivedChunks[i], 0, _receivedChunks[i].Length);
                 byte[] compressedData = ms.ToArray();
@@ -87,12 +99,16 @@ namespace WorldBoxMultiplayer
                 File.WriteAllBytes(path, rawData);
             }
             
-            // Reflection for SaveManager.loadGame
-            var saveMgr = Type.GetType("SaveManager");
-            if (saveMgr != null) {
-                var method = saveMgr.GetMethod("loadGame", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static) ?? saveMgr.GetMethod("LoadGame", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-                method?.Invoke(null, new object[] { SYNC_SLOT });
-            }
+            // Use Traverse to call SaveManager.loadGame(string)
+            try {
+                var trav = Traverse.Create(Type.GetType("SaveManager"));
+                if (trav.Method("loadGame", new object[] { SYNC_SLOT }).MethodExists()) {
+                    trav.Method("loadGame", new object[] { SYNC_SLOT }).GetValue();
+                    Debug.Log("[Sync] Game Loaded Successfully!");
+                }
+                else 
+                    Debug.LogError("[Sync] SaveManager.loadGame not found!");
+            } catch (Exception e) { Debug.LogError("[Sync] Load Error: " + e.Message); }
             
             NetworkManager.Instance.SendTickSync(0);
         }

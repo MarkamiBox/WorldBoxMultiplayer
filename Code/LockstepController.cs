@@ -60,14 +60,16 @@ namespace WorldBoxMultiplayer
 
         private long CalculateWorldHash()
         {
-            if (World.world == null) return 0;
+            if (World.world == null || World.world.units == null || World.world.cities == null) return 0;
             long hash = 0;
             hash += World.world.units.Count * 1000;
             hash += World.world.cities.Count * 1000000;
-            if (World.world.units.Count > 0) {
-                 var list = Traverse.Create(World.world.units).Field("simpleList").GetValue<List<Actor>>();
-                 if (list != null && list.Count > 0 && list[0] != null) hash += list[0].data.health;
-            }
+            
+            try {
+                var list = Traverse.Create(World.world.units).Field("simpleList").GetValue<List<Actor>>();
+                if (list != null && list.Count > 0 && list[0] != null) hash += list[0].data.health;
+            } catch {}
+            
             return hash;
         }
 

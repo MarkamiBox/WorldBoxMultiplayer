@@ -108,7 +108,16 @@ namespace WorldBoxMultiplayer
             } catch (Exception e) { Debug.LogError("Conn Error: " + e.Message); }
         }
 
-        public void SendRaw(string message) { try { byte[] msg = Encoding.UTF8.GetBytes(message); _stream.Write(msg, 0, msg.Length); } catch {} }
+        public void SendRaw(string message) { 
+            if (_stream == null || !_client.Connected) return;
+            try { 
+                byte[] msg = Encoding.UTF8.GetBytes(message); 
+                _stream.Write(msg, 0, msg.Length); 
+            } catch (Exception e) { 
+                Debug.LogError("SendRaw Error: " + e.Message); 
+                Disconnect(); 
+            } 
+        }
         public void SendAction(string actionData) { if (!IsMultiplayerReady) return; int targetTick = LockstepController.Instance.CurrentTick + 2; SendRaw($"G|{targetTick}|{actionData}\n"); }
         public void SendNameChange(string type, long id, string newName) { if (!IsMultiplayerReady) return; string name64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(newName)); SendRaw($"N|{type}|{id}|{name64}\n"); }
         public void SendKingdomCustomization(long id, int colorId, int bannerId) { if (!IsMultiplayerReady) return; SendRaw($"K|{id}|{colorId}|{bannerId}\n"); }
