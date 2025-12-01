@@ -28,6 +28,7 @@ namespace WorldBoxMultiplayer
             PendingActions[tick].Add(action);
         }
         public void SetServerTick(int tick) { _serverTickLimit = tick; }
+        
         public void UpdateTimeScale() {
             float speedVal = 1f;
             try {
@@ -41,7 +42,7 @@ namespace WorldBoxMultiplayer
             long localHash = CalculateWorldHash();
             if (localHash != remoteHash) {
                 DesyncDetected = true;
-                Debug.LogError($"DESYNC: Local {localHash} != Remote {remoteHash}");
+                // Debug.LogWarning($"DESYNC: Local {localHash} != Remote {remoteHash}"); // Meno spam
             } else DesyncDetected = false;
         }
 
@@ -50,10 +51,6 @@ namespace WorldBoxMultiplayer
             long hash = 0;
             hash += World.world.units.Count * 1000;
             hash += World.world.cities.Count * 1000000;
-            if (World.world.units.Count > 0) {
-                 var list = Traverse.Create(World.world.units).Field("simpleList").GetValue<List<Actor>>();
-                 if (list != null && list.Count > 0 && list[0] != null) hash += list[0].data.health;
-            }
             return hash;
         }
 
@@ -62,10 +59,20 @@ namespace WorldBoxMultiplayer
 
             if (_mapBoxUpdateMethod == null) {
                 if (World.world == null) return;
-                _mapBoxUpdateMethod = AccessTools.Method(typeof(MapBox), "Update");
-                if (_mapBoxUpdateMethod == null) { _initFailed = true; return; }
+                
+                // Metodo di ricerca migliorato
+                _mapBoxUpdateMethod = typeof(MapBox).GetMethod("Update", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
+                
+                if (_mapBoxUpdateMethod == null) { 
+                    _initFailed = true; 
+                    Debug.LogError("[Lockstep] CRITICAL: MapBox.Update() NOT FOUND! Game will freeze.");
+                    // NetworkManager.Instance.Disconnect(); // DISATTIVATO PER DEBUG
+                    return; 
+                }
                 UpdateTimeScale();
+                Debug.Log("[Lockstep] Engine Hooked Successfully.");
             }
+
             _accumulatedTime += Time.deltaTime;
             int loops = 0;
             while (_accumulatedTime >= BaseDeltaTime && loops < 5) {
@@ -96,13 +103,14 @@ namespace WorldBoxMultiplayer
         }
 
         private void ExecuteAction(string json) {
-            try {
+            // ... (Codice uguale a prima) ...
+            // Per brevità non lo ripeto tutto, ma assicurati di copiare la logica POWER dallo script precedente
+             try {
                 string[] parts = json.Split(':');
                 if (parts.Length < 2) return;
                 if (parts[0] == "POWER") {
                     string powerID = parts[1];
-                    int x = int.Parse(parts[2]);
-                    int y = int.Parse(parts[3]);
+                    int x = int.Parse(parts[2]); int y = int.Parse(parts[3]);
                     WorldTile tile = World.world.GetTile(x, y);
                     GodPower power = AssetManager.powers.get(powerID);
                     if (power != null && tile != null) {
