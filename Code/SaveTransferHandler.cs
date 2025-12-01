@@ -54,11 +54,10 @@ namespace WorldBoxMultiplayer
                 }
 
                 // DEBUG: Log methods
-                /*
-                foreach (var m in saveMgrType.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance)) {
-                    Debug.Log($"[Sync] Method: {m.Name}");
+                Debug.Log("[Sync] Listing SaveManager methods:");
+                foreach (var m in saveMgrType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance)) {
+                    Debug.Log($"[Sync] Method: {m.Name} (Params: {m.GetParameters().Length})");
                 }
-                */
 
                 // 1. Try saveGame(int)
                 MethodInfo methodInt = AccessTools.Method(saveMgrType, "saveGame", new Type[] { typeof(int) });
