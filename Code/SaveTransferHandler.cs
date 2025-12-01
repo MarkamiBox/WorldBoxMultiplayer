@@ -44,47 +44,83 @@ namespace WorldBoxMultiplayer
             StartCoroutine(WaitForFileAndSend());
         }
 
+        private bool CallGameSave(int slot)
+        {
+            try {
+                Type saveMgrType = AccessTools.TypeByName("SaveManager");
+                if (saveMgrType == null) {
+                    Debug.LogError("[Sync] SaveManager type not found!");
+                    return false;
+                }
+
+                // DEBUG: Log methods
+                /*
+                foreach (var m in saveMgrType.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance)) {
+                    Debug.Log($"[Sync] Method: {m.Name}");
+                }
+                */
+
+                // 1. Try saveGame(int)
+                MethodInfo methodInt = AccessTools.Method(saveMgrType, "saveGame", new Type[] { typeof(int) });
+                if (methodInt != null) {
+                    Debug.Log($"[Sync] Calling SaveManager.saveGame({slot})...");
+                    methodInt.Invoke(null, new object[] { slot });
+                    return true;
+                }
+
+                // 2. Try saveGame(string)
+                MethodInfo methodStr = AccessTools.Method(saveMgrType, "saveGame", new Type[] { typeof(string) });
+                if (methodStr != null) {
+                    string slotName = "save" + slot;
+                    Debug.Log($"[Sync] Calling SaveManager.saveGame('{slotName}')...");
+                    methodStr.Invoke(null, new object[] { slotName });
+                    return true;
+                }
+
+                Debug.LogError("[Sync] No suitable saveGame method found!");
+
+            } catch (Exception e) { Debug.LogError($"[Sync] Save Call Exception: {e.Message}"); }
+            return false;
+        }
+
         private IEnumerator WaitForFileAndSend()
         {
             string path = GetSavePath(SYNC_SLOT_ID);
             Debug.Log($"[Sync] 2. Looking for save file at: {path}");
 
-            // Attesa attiva (Max 5 secondi)
-            float timeout = 5f;
+            float timeout = 10f; // Increased timeout
             bool fileFound = false;
             
             while (timeout > 0)
             {
                 if (File.Exists(path))
                 {
-                    // Verifica che il file sia recente (scritto negli ultimi 10 secondi)
                     DateTime lastWrite = File.GetLastWriteTime(path);
-                    if ((DateTime.Now - lastWrite).TotalSeconds < 10)
+                    if ((DateTime.Now - lastWrite).TotalSeconds < 20)
                     {
                         fileFound = true;
                         break;
                     }
                 }
-                timeout -= 0.2f;
-                yield return new WaitForSeconds(0.2f);
+                timeout -= 0.5f;
+                yield return new WaitForSeconds(0.5f);
             }
 
             if (!fileFound)
             {
-                Debug.LogError("[Sync] FATAL: Save file not found or too old. The game failed to save.");
+                Debug.LogError("[Sync] FATAL: Save file not found or too old. Disconnecting.");
                 IsTransferring = false;
+                NetworkManager.Instance.Disconnect(); // Disconnect on failure
                 yield break;
             }
 
-            // 3. Leggi il file
             byte[] rawData = null;
             try {
-                // Piccolo ritardo extra per assicurarsi che la scrittura sia finita (file lock)
-                yield return new WaitForSeconds(0.2f); 
                 rawData = File.ReadAllBytes(path);
             } catch (Exception e) {
                 Debug.LogError($"[Sync] File Read Error: {e.Message}");
                 IsTransferring = false;
+                NetworkManager.Instance.Disconnect();
                 yield break;
             }
 
@@ -93,30 +129,6 @@ namespace WorldBoxMultiplayer
             Debug.Log($"[Sync] 4. Compressed to {compressedData.Length} bytes. Sending...");
 
             StartCoroutine(SendFileRoutine(compressedData));
-        }
-
-        private bool CallGameSave(int slot)
-        {
-            try {
-                // Usa Reflection per trovare SaveManager (funziona su diverse versioni del gioco)
-                Type saveMgrType = AccessTools.TypeByName("SaveManager");
-                if (saveMgrType == null) return false;
-
-                // Prova metodo statico: SaveManager.saveGame(int)
-                MethodInfo method = AccessTools.Method(saveMgrType, "saveGame", new Type[] { typeof(int) });
-                if (method != null) {
-                    method.Invoke(null, new object[] { slot });
-                    return true;
-                }
-
-                // Prova istanza
-                UnityEngine.Object instance = UnityEngine.Object.FindObjectOfType(saveMgrType);
-                if (instance != null) {
-                    Traverse.Create(instance).Method("saveGame", new object[] { slot }).GetValue();
-                    return true;
-                }
-            } catch (Exception e) { Debug.LogError($"[Sync] Save Call Exception: {e.Message}"); }
-            return false;
         }
 
         private string GetSavePath(int slot)
@@ -215,7 +227,8 @@ namespace WorldBoxMultiplayer
 
             } catch (Exception e) {
                 Debug.LogError("[Sync] Load Error: " + e.Message);
-                NetworkManager.Instance.IsMapLoaded = true; // Sblocca comunque per non freezare
+                NetworkManager.Instance.IsMapLoaded = true; 
+                NetworkManager.Instance.Disconnect(); // Disconnect on load failure
             }
         }
 
