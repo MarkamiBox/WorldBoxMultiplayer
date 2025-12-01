@@ -87,11 +87,15 @@ namespace WorldBoxMultiplayer
         }
 
         private void RunGameTick() {
-            // Esegui Azioni
-            if (PendingActions.ContainsKey(CurrentTick)) {
-                foreach (var actionJson in PendingActions[CurrentTick]) ExecuteAction(actionJson);
-                PendingActions.Remove(CurrentTick);
+            // Esegui Azioni (Inclusi quelli passati che potrebbero essere arrivati in ritardo)
+            List<int> ticksToRemove = new List<int>();
+            foreach (var kvp in PendingActions) {
+                if (kvp.Key <= CurrentTick) {
+                    foreach (var actionJson in kvp.Value) ExecuteAction(actionJson);
+                    ticksToRemove.Add(kvp.Key);
+                }
             }
+            foreach (int t in ticksToRemove) PendingActions.Remove(t);
 
             // Fai avanzare il mondo (SIMULAZIONE)
             if (World.world != null) {
@@ -112,6 +116,7 @@ namespace WorldBoxMultiplayer
 
         private void ExecuteAction(string json) {
             try {
+                // Debug.Log($"[Lockstep] Executing: {json}");
                 string[] parts = json.Split(':');
                 if (parts.Length < 2) return;
                 if (parts[0] == "POWER") {
@@ -120,6 +125,7 @@ namespace WorldBoxMultiplayer
                     WorldTile tile = World.world.GetTile(x, y);
                     GodPower power = AssetManager.powers.get(powerID);
                     if (power != null && tile != null) {
+                        Debug.Log($"[Lockstep] Spawning Power: {powerID} at {x},{y}");
                         IsRunningManualStep = true;
                         if (power.click_action != null) power.click_action(tile, powerID);
                         else if (!string.IsNullOrEmpty(power.drop_id)) {
@@ -129,7 +135,7 @@ namespace WorldBoxMultiplayer
                         IsRunningManualStep = false; 
                     }
                 }
-            } catch {}
+            } catch (System.Exception e) { Debug.LogError($"[Lockstep] Action Error: {e.Message}"); }
         }
     }
 }

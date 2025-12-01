@@ -82,8 +82,11 @@ namespace WorldBoxMultiplayer
             Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
             WorldTile tile = MapBox.instance.GetTile((int)mousePos.x, (int)mousePos.y);
             
-            if (tile != null) 
-                NetworkManager.Instance.SendAction($"POWER:{power.id}:{tile.x}:{tile.y}");
+            if (tile != null) {
+                string packet = $"POWER:{power.id}:{tile.x}:{tile.y}";
+                Debug.Log($"[InputHandler] Sending Action: {packet}");
+                NetworkManager.Instance.SendAction(packet);
+            }
         }
     }
 }

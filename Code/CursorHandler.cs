@@ -56,10 +56,12 @@ namespace WorldBoxMultiplayer
                 }
             }
 
-            // Check current power (Simplified for now)
-            string currentPower = "god_finger"; 
-            // TODO: Find correct API for selected power. 
-            // For now, default to finger so cursor is visible.
+            // Check current power
+            string currentPower = "god_finger";
+            if (PowerButtonSelector.instance != null && PowerButtonSelector.instance.selectedButton != null) {
+                var godPower = Traverse.Create(PowerButtonSelector.instance.selectedButton).Field("godPower").GetValue<GodPower>();
+                if (godPower != null) currentPower = godPower.id;
+            }
             
             if (currentPower != _lastPowerID)
             {
@@ -75,7 +77,7 @@ namespace WorldBoxMultiplayer
         public void UpdateRemoteCursor(float x, float y)
         {
             if (!_remoteCursorObj.activeSelf) _remoteCursorObj.SetActive(true);
-            _targetPos = new Vector3(x, y, -10f); 
+            _targetPos = new Vector3(x, y, 0f); // Z=0 is safer for 2D 
         }
 
         public void SetRemotePower(string powerID)
