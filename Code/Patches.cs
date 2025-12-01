@@ -35,17 +35,22 @@ namespace WorldBoxMultiplayer
         }
         
         static void HandleClick() {
-            var selector = PowerButtonSelector.instance;
-            if (selector == null || selector.selectedButton == null) return;
-            
-            GodPower power = Traverse.Create(selector.selectedButton).Field("godPower").GetValue<GodPower>();
-            if (power == null || _bannedPowers.Contains(power.id)) return;
-            
-            Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
-            WorldTile tile = MapBox.instance.GetTile((int)mousePos.x, (int)mousePos.y);
-            
-            if (tile != null) 
-                NetworkManager.Instance.SendAction($"POWER:{power.id}:{tile.x}:{tile.y}");
+            try {
+                if (PowerButtonSelector.instance == null || PowerButtonSelector.instance.selectedButton == null) return;
+                
+                GodPower power = Traverse.Create(PowerButtonSelector.instance.selectedButton).Field("godPower").GetValue<GodPower>();
+                if (power == null || _bannedPowers.Contains(power.id)) return;
+                
+                if (Camera.main == null) return;
+                Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+                if (MapBox.instance == null) return;
+                WorldTile tile = MapBox.instance.GetTile((int)mousePos.x, (int)mousePos.y);
+                
+                if (tile != null) 
+                    NetworkManager.Instance.SendAction($"POWER:{power.id}:{tile.x}:{tile.y}");
+            } catch (System.Exception e) {
+                Debug.LogWarning($"[Input] Error handling click: {e.Message}");
+            }
         }
     }
 }

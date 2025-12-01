@@ -102,12 +102,19 @@ namespace WorldBoxMultiplayer
                 foreach (var actionJson in PendingActions[CurrentTick]) ExecuteAction(actionJson);
                 PendingActions.Remove(CurrentTick);
             }
-            if (World.world != null && !World.world.isPaused()) {
-                try {
-                    IsRunningManualStep = true; 
-                    _mapBoxUpdateMethod.Invoke(World.world, null);
-                    IsRunningManualStep = false; 
-                } catch { IsRunningManualStep = false; }
+            if (World.world != null) {
+                if (!World.world.isPaused()) {
+                    try {
+                        IsRunningManualStep = true; 
+                        _mapBoxUpdateMethod.Invoke(World.world, null);
+                        IsRunningManualStep = false; 
+                    } catch (System.Exception e) { 
+                        IsRunningManualStep = false; 
+                        Debug.LogError($"[Lockstep] Game Tick Error: {e.Message}\n{e.StackTrace}");
+                    }
+                } else {
+                    // Debug.Log("[Lockstep] World is Paused"); // Uncomment if needed
+                }
             }
             CurrentTick++;
         }
