@@ -45,28 +45,26 @@ namespace WorldBoxMultiplayer
             // Send my cursor position
             if (Time.time - _lastSendTime > 0.05f)
             {
-                Vector3 pos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
-                if (Vector3.Distance(pos, _lastSentPos) > 0.1f) 
-                {
-                    NetworkManager.Instance.SendCursorPos(pos.x, pos.y);
-                    _lastSentPos = pos;
-                    _lastSendTime = Time.time;
+                if (Camera.main != null) {
+                    Vector3 pos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+                    if (Vector3.Distance(pos, _lastSentPos) > 0.1f) 
+                    {
+                        NetworkManager.Instance.SendCursorPos(pos.x, pos.y);
+                        _lastSentPos = pos;
+                        _lastSendTime = Time.time;
+                    }
                 }
             }
 
-            // Check current power
-            string currentPower = null;
-            if (PowerButtonSelector.instance != null && PowerButtonSelector.instance.selectedButton != null)
-            {
-                // Use Traverse to safely get godPower
-                GodPower power = Traverse.Create(PowerButtonSelector.instance.selectedButton).Field("godPower").GetValue<GodPower>();
-                if (power != null) currentPower = power.id;
-            }
-
+            // Check current power (Simplified for now)
+            string currentPower = "god_finger"; 
+            // TODO: Find correct API for selected power. 
+            // For now, default to finger so cursor is visible.
+            
             if (currentPower != _lastPowerID)
             {
                 _lastPowerID = currentPower;
-                NetworkManager.Instance.SendPowerSelection(string.IsNullOrEmpty(currentPower) ? "god_finger" : currentPower);
+                NetworkManager.Instance.SendPowerSelection(currentPower);
             }
 
             // Interpolate remote cursor

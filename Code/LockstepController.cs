@@ -8,8 +8,8 @@ namespace WorldBoxMultiplayer
     public class LockstepController : MonoBehaviour
     {
         public static LockstepController Instance;
-        public const float BaseDeltaTime = 0.1f; 
-        public float CurrentDeltaTime = 0.1f;
+        public const float BaseDeltaTime = 0.05f; // 20 Ticks/Second for smoother gameplay
+        public float CurrentDeltaTime = 0.05f;
         public bool IsRunningManualStep = false; 
         public int CurrentTick = 0;
         public bool DesyncDetected = false;
@@ -42,7 +42,6 @@ namespace WorldBoxMultiplayer
             long localHash = CalculateWorldHash();
             if (localHash != remoteHash) {
                 DesyncDetected = true;
-                // Debug.LogWarning($"DESYNC: Local {localHash} != Remote {remoteHash}"); // Meno spam
             } else DesyncDetected = false;
         }
 
@@ -66,7 +65,6 @@ namespace WorldBoxMultiplayer
                 if (_mapBoxUpdateMethod == null) { 
                     _initFailed = true; 
                     Debug.LogError("[Lockstep] CRITICAL: MapBox.Update() NOT FOUND! Game will freeze.");
-                    // NetworkManager.Instance.Disconnect(); // DISATTIVATO PER DEBUG
                     return; 
                 }
                 UpdateTimeScale();
@@ -75,15 +73,27 @@ namespace WorldBoxMultiplayer
 
             _accumulatedTime += Time.deltaTime;
             int loops = 0;
-            while (_accumulatedTime >= BaseDeltaTime && loops < 5) {
+            // Allow up to 10 loops to catch up if lagging
+            while (_accumulatedTime >= BaseDeltaTime && loops < 10) {
+                // Host is the authority, so it can always advance. Client waits for server tick.
                 bool canAdvance = NetworkManager.Instance.IsHost() || CurrentTick < _serverTickLimit;
+                
                 if (canAdvance) {
                     RunGameTick();
                     _accumulatedTime -= BaseDeltaTime;
-                    if (CurrentTick % 50 == 0) NetworkManager.Instance.SendHash(CurrentTick, CalculateWorldHash());
+                    
+                    // Sync hash less frequently to save bandwidth (every 100 ticks = 5 seconds)
+                    if (CurrentTick % 100 == 0) NetworkManager.Instance.SendHash(CurrentTick, CalculateWorldHash());
+                    
+                    // Host sends tick sync every tick to keep clients smooth
                     if (NetworkManager.Instance.IsHost()) NetworkManager.Instance.SendTickSync(CurrentTick);
+                    
                     loops++;
-                } else break; 
+                } else {
+                    // Client is ahead of server, wait.
+                    _accumulatedTime = 0; // Prevent accumulation while waiting
+                    break; 
+                }
             }
         }
 
