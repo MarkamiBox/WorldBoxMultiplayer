@@ -24,6 +24,23 @@ namespace WorldBoxMultiplayer
         void Awake()
         {
             instance = this;
+            try {
+                _myLocalIP = GetLocalIPAddress();
+                _myRoomCode = GenerateRoomCode(_myLocalIP, "7777");
+                Harmony harmony = new Harmony("com.markami.worldbox.multiplayer.final");
+                harmony.PatchAll();
+                if (GetComponent<NetworkManager>() == null) gameObject.AddComponent<NetworkManager>();
+                if (GetComponent<LockstepController>() == null) gameObject.AddComponent<LockstepController>();
+                if (GetComponent<CursorHandler>() == null) gameObject.AddComponent<CursorHandler>();
+                if (GetComponent<SaveTransferHandler>() == null) gameObject.AddComponent<SaveTransferHandler>();
+                Debug.Log("MULTIPLAYER ULTIMATE LOADED");
+            } catch (Exception e) { Debug.LogError(e.Message); }
+        }
+
+        public void UpdateStatus(string s) { _status = s; }
+        
+        public void SetName(string type, long id, string name64) {
+            try {
                 string name = Encoding.UTF8.GetString(Convert.FromBase64String(name64));
                 if (type == "Actor") { foreach(var a in World.world.units) if(a.id == id) { a.data.name = name; break; } }
                 else if (type == "City") { City c = World.world.cities.get(id); if (c != null) c.data.name = name; }
