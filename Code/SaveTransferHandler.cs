@@ -53,30 +53,24 @@ namespace WorldBoxMultiplayer
                     return false;
                 }
 
-                // DEBUG: Log methods
-                Debug.Log("[Sync] Listing SaveManager methods:");
-                foreach (var m in saveMgrType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance)) {
-                    Debug.Log($"[Sync] Method: {m.Name} (Params: {m.GetParameters().Length})");
+                // Find instance
+                UnityEngine.Object instance = UnityEngine.Object.FindObjectOfType(saveMgrType);
+                if (instance == null) {
+                    Debug.LogError("[Sync] SaveManager instance not found!");
+                    return false;
                 }
 
-                // 1. Try saveGame(int)
-                MethodInfo methodInt = AccessTools.Method(saveMgrType, "saveGame", new Type[] { typeof(int) });
-                if (methodInt != null) {
-                    Debug.Log($"[Sync] Calling SaveManager.saveGame({slot})...");
-                    methodInt.Invoke(null, new object[] { slot });
-                    return true;
-                }
+                var trav = Traverse.Create(instance);
 
-                // 2. Try saveGame(string)
-                MethodInfo methodStr = AccessTools.Method(saveMgrType, "saveGame", new Type[] { typeof(string) });
-                if (methodStr != null) {
-                    string slotName = "save" + slot;
-                    Debug.Log($"[Sync] Calling SaveManager.saveGame('{slotName}')...");
-                    methodStr.Invoke(null, new object[] { slotName });
-                    return true;
-                }
+                // 1. Set Slot
+                Debug.Log($"[Sync] Setting slot to {slot}...");
+                trav.Method("setCurrentSlot", new object[] { slot }).GetValue();
 
-                Debug.LogError("[Sync] No suitable saveGame method found!");
+                // 2. Save
+                Debug.Log("[Sync] Calling saveToCurrentPath...");
+                trav.Method("saveToCurrentPath").GetValue();
+                
+                return true;
 
             } catch (Exception e) { Debug.LogError($"[Sync] Save Call Exception: {e.Message}"); }
             return false;
@@ -237,12 +231,17 @@ namespace WorldBoxMultiplayer
                 Type saveMgrType = AccessTools.TypeByName("SaveManager");
                 if (saveMgrType == null) return;
 
-                MethodInfo method = AccessTools.Method(saveMgrType, "loadGame", new Type[] { typeof(int) });
-                if (method != null) { method.Invoke(null, new object[] { slot }); return; }
-
                 UnityEngine.Object instance = UnityEngine.Object.FindObjectOfType(saveMgrType);
                 if (instance != null) {
-                    Traverse.Create(instance).Method("loadGame", new object[] { slot }).GetValue();
+                    var trav = Traverse.Create(instance);
+                    
+                    // 1. Set Slot
+                    Debug.Log($"[Sync] Setting load slot to {slot}...");
+                    trav.Method("setCurrentSlot", new object[] { slot }).GetValue();
+
+                    // 2. Load
+                    Debug.Log("[Sync] Calling startLoadSlot...");
+                    trav.Method("startLoadSlot").GetValue();
                 }
             } catch (Exception e) { Debug.LogError($"[Sync] LoadCall Error: {e.Message}"); }
         }
