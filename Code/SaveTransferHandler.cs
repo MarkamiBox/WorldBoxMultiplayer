@@ -281,6 +281,9 @@ namespace WorldBoxMultiplayer
             
             // Unpause client
             Config.paused = false;
+            
+            // Tell Host we are ready so they can unpause too
+            NetworkManager.Instance.SendClientReady();
         }
 
         private bool IsGameLoading()

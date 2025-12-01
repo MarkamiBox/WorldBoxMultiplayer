@@ -136,6 +136,11 @@ namespace WorldBoxMultiplayer
                 }
                 
                 if (type == "D") Disconnect();
+                else if (type == "R" && IsHost()) {
+                    Debug.Log("[Sync] Client Ready! Unpausing game...");
+                    Config.paused = false;
+                    WorldBoxMultiplayer.instance.UpdateStatus("Client Ready - Game Started");
+                }
 
             } catch (Exception e) { Debug.LogError($"Packet Error: {e.Message}"); }
         }
@@ -157,6 +162,7 @@ namespace WorldBoxMultiplayer
         public void SendSpeedChange(string id) { if(IsMultiplayerReady) SendRaw($"S|{id}\n"); }
         public void SendHash(int t, long h) { if(IsMultiplayerReady) SendRaw($"H|{t}|{h}\n"); }
         public void SendDisconnect() { if(IsMultiplayerReady) SendRaw("D\n"); }
+        public void SendClientReady() { if(IsMultiplayerReady) SendRaw("R\n"); }
         public void RequestResync() { if (_isHost) SaveTransferHandler.Instance.StartTransfer(); }
 
         public void Disconnect()
