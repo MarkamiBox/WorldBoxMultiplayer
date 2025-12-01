@@ -95,13 +95,19 @@ namespace WorldBoxMultiplayer
 
             if (icon != null) {
                 _cursorRenderer.sprite = icon;
-                _cursorRenderer.color = Color.white; // Reset color if we have a sprite
+                _cursorRenderer.color = Color.white; 
             }
             else {
-                // Fallback if absolutely no sprites found
-                Debug.LogWarning($"[Cursor] Could not load sprite for {powerID} or god_finger");
-                // Create a simple square texture if needed, or just keep it magenta
-                _cursorRenderer.sprite = null; 
+                // Fallback: Create a simple white square
+                if (_cursorRenderer.sprite == null) {
+                    Texture2D tex = new Texture2D(32, 32);
+                    Color[] colors = new Color[32 * 32];
+                    for (int i = 0; i < colors.Length; i++) colors[i] = Color.white;
+                    tex.SetPixels(colors);
+                    tex.Apply();
+                    _cursorRenderer.sprite = Sprite.Create(tex, new Rect(0, 0, 32, 32), new Vector2(0.5f, 0.5f));
+                    _cursorRenderer.color = Color.magenta; // Make it visible
+                }
             }
         }
     }
