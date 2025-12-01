@@ -106,7 +106,7 @@ namespace WorldBoxMultiplayer
                 if (!World.world.isPaused()) {
                     try {
                         IsRunningManualStep = true; 
-                        _mapBoxUpdateMethod.Invoke(World.world, null);
+                        _mapBoxUpdateMethod.Invoke(MapBox.instance, null);
                         IsRunningManualStep = false; 
                     } catch (System.Exception e) { 
                         IsRunningManualStep = false; 
