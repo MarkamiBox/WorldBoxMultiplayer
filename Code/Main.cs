@@ -25,20 +25,31 @@ namespace WorldBoxMultiplayer
         void Awake()
         {
             instance = this;
+            _myLocalIP = GetLocalIPAddress();
+            _myRoomCode = GenerateRoomCode(_myLocalIP, "7777");
+            
+            // Add components FIRST, before patching
             try {
-                _myLocalIP = GetLocalIPAddress();
-                _myRoomCode = GenerateRoomCode(_myLocalIP, "7777");
-                Harmony harmony = new Harmony("com.markami.worldbox.multiplayer.authserver");
-                harmony.PatchAll();
-                
                 if (GetComponent<NetworkManager>() == null) gameObject.AddComponent<NetworkManager>();
                 if (GetComponent<StateSyncManager>() == null) gameObject.AddComponent<StateSyncManager>();
                 if (GetComponent<ClientController>() == null) gameObject.AddComponent<ClientController>();
                 if (GetComponent<CursorHandler>() == null) gameObject.AddComponent<CursorHandler>();
                 if (GetComponent<SaveTransferHandler>() == null) gameObject.AddComponent<SaveTransferHandler>();
-                
-                Debug.Log("MULTIPLAYER AUTHSERVER LOADED");
-            } catch (Exception e) { Debug.LogError(e.Message); }
+                Debug.Log("[Multiplayer] Components added successfully");
+            } catch (Exception e) { 
+                Debug.LogError("[Multiplayer] Failed to add components: " + e.Message); 
+            }
+            
+            // Apply Harmony patches separately
+            try {
+                Harmony harmony = new Harmony("com.markami.worldbox.multiplayer.authserver");
+                harmony.PatchAll();
+                Debug.Log("[Multiplayer] Harmony patches applied");
+            } catch (Exception e) { 
+                Debug.LogError("[Multiplayer] Harmony patching failed (non-critical): " + e.Message); 
+            }
+            
+            Debug.Log("MULTIPLAYER AUTHSERVER LOADED");
         }
         
         public void UpdateStatus(string s) { _status = s; }
