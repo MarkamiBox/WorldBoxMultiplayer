@@ -188,9 +188,30 @@ namespace WorldBoxMultiplayer
         }
         
         public static string GetLocalIPAddress() { 
-            try { 
-                foreach (var ip in Dns.GetHostEntry(Dns.GetHostName()).AddressList) 
-                    if (ip.AddressFamily == AddressFamily.InterNetwork) return ip.ToString(); 
+            try {
+                string fallbackIP = "127.0.0.1";
+                var addresses = Dns.GetHostEntry(Dns.GetHostName()).AddressList;
+                
+                // First pass: look for common LAN addresses (prefer 192.168.1.x, 192.168.0.x, 10.x.x.x)
+                foreach (var ip in addresses) {
+                    if (ip.AddressFamily == AddressFamily.InterNetwork) {
+                        string ipStr = ip.ToString();
+                        // Skip known virtual adapter ranges
+                        if (ipStr.StartsWith("192.168.56.") || // VirtualBox
+                            ipStr.StartsWith("192.168.137.") || // Windows ICS
+                            ipStr.StartsWith("169.254.")) // Link-local
+                            continue;
+                        
+                        // Prefer common home network ranges
+                        if (ipStr.StartsWith("192.168.1.") || 
+                            ipStr.StartsWith("192.168.0.") ||
+                            ipStr.StartsWith("10."))
+                            return ipStr;
+                        
+                        fallbackIP = ipStr; // Keep as fallback
+                    }
+                }
+                return fallbackIP;
             } catch {} 
             return "127.0.0.1"; 
         }
