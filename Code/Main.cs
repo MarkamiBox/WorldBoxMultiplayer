@@ -90,13 +90,18 @@ namespace WorldBoxMultiplayer
         }
 
         void DrawWindow(int id) {
-            if (SaveTransferHandler.Instance != null && SaveTransferHandler.Instance.IsTransferring) {
+            var netMgr = NetworkManager.Instance ?? GetComponent<NetworkManager>();
+            var saveTrans = SaveTransferHandler.Instance ?? GetComponent<SaveTransferHandler>();
+            var clientCtrl = ClientController.Instance ?? GetComponent<ClientController>();
+            var syncMgr = StateSyncManager.Instance ?? GetComponent<StateSyncManager>();
+            
+            if (saveTrans != null && saveTrans.IsTransferring) {
                 GUI.Label(new Rect(10, 50, 260, 30), "SYNCING WORLD... PLEASE WAIT");
                 GUI.Box(new Rect(10, 80, 260, 20), "");
                 GUI.color = Color.green;
-                GUI.Box(new Rect(10, 80, 260 * SaveTransferHandler.Instance.Progress, 20), "");
+                GUI.Box(new Rect(10, 80, 260 * saveTrans.Progress, 20), "");
                 GUI.color = Color.white;
-                GUI.Label(new Rect(10, 105, 260, 20), $"{(int)(SaveTransferHandler.Instance.Progress * 100)}%");
+                GUI.Label(new Rect(10, 105, 260, 20), $"{(int)(saveTrans.Progress * 100)}%");
                 GUI.DragWindow();
                 return;
             }
@@ -106,44 +111,53 @@ namespace WorldBoxMultiplayer
             GUI.color = Color.white;
             GUI.Label(new Rect(10, 50, 260, 20), "Status: " + _status);
             
-            bool isClient = ClientController.Instance != null && ClientController.Instance.IsClientMode;
-            bool isHost = NetworkManager.Instance != null && NetworkManager.Instance.IsHost();
+            bool isConnected = netMgr != null && netMgr.IsConnected;
+            bool isHost = netMgr != null && netMgr.IsHost();
+            bool isClient = clientCtrl != null && clientCtrl.IsClientMode;
             
-            if (NetworkManager.Instance != null && NetworkManager.Instance.IsConnected) {
+            if (isConnected) {
                 GUI.color = Color.green;
                 if (isHost) GUI.Label(new Rect(10, 70, 260, 20), "MODE: HOST (Authoritative)");
                 else if (isClient) GUI.Label(new Rect(10, 70, 260, 20), "MODE: CLIENT (Visual Sync)");
                 GUI.color = Color.white;
                 
-                if (StateSyncManager.Instance != null && isHost) {
-                    GUI.Label(new Rect(10, 90, 260, 20), $"Sync Interval: {StateSyncManager.Instance.SyncInterval:F2}s");
+                if (syncMgr != null && isHost) {
+                    GUI.Label(new Rect(10, 90, 260, 20), $"Sync Interval: {syncMgr.SyncInterval:F2}s");
                 }
             }
 
-            if (NetworkManager.Instance == null || !NetworkManager.Instance.IsConnected) {
+            if (!isConnected) {
                 GUI.Label(new Rect(10, 120, 260, 20), "HOST CODE:");
                 GUI.TextField(new Rect(10, 140, 260, 20), _myRoomCode);
-                if (GUI.Button(new Rect(10, 165, 260, 30), "HOST") && NetworkManager.Instance != null) { 
-                    NetworkManager.Instance.StartHost(int.Parse(_port)); 
-                    _status = "Waiting..."; 
+                if (GUI.Button(new Rect(10, 165, 260, 30), "HOST")) { 
+                    if (netMgr != null) {
+                        netMgr.StartHost(int.Parse(_port)); 
+                        _status = "Waiting..."; 
+                    } else {
+                        _status = "Error: NetworkManager not found";
+                    }
                 }
                 
                 GUI.Label(new Rect(10, 205, 260, 20), "JOIN CODE:");
                 _roomCodeInput = GUI.TextField(new Rect(10, 225, 260, 20), _roomCodeInput);
-                if (GUI.Button(new Rect(10, 250, 260, 30), "CONNECT") && NetworkManager.Instance != null) {
-                    if (DecodeRoomCode(_roomCodeInput, out string ip, out int port)) { 
-                        NetworkManager.Instance.StartClient(ip, port); 
-                        _status = "Connecting..."; 
+                if (GUI.Button(new Rect(10, 250, 260, 30), "CONNECT")) {
+                    if (netMgr != null) {
+                        if (DecodeRoomCode(_roomCodeInput, out string ip, out int port)) { 
+                            netMgr.StartClient(ip, port); 
+                            _status = "Connecting..."; 
+                        }
+                        else _status = "Invalid Code";
+                    } else {
+                        _status = "Error: NetworkManager not found";
                     }
-                    else _status = "Invalid Code";
                 }
             } else {
-                if (GUI.Button(new Rect(10, 290, 260, 30), "DISCONNECT")) NetworkManager.Instance.Disconnect();
+                if (GUI.Button(new Rect(10, 290, 260, 30), "DISCONNECT")) netMgr.Disconnect();
                 
-                if (isHost) {
+                if (isHost && saveTrans != null) {
                     GUI.Label(new Rect(10, 330, 260, 20), "HOST CONTROLS:");
                     if (GUI.Button(new Rect(10, 350, 260, 30), "Force Full Resync")) 
-                        SaveTransferHandler.Instance.StartTransfer();
+                        saveTrans.StartTransfer();
                 }
             }
             GUI.DragWindow();
