@@ -26,6 +26,14 @@ namespace WorldBoxMultiplayer
         void Update()
         {
             if (!IsClientMode) return;
+            
+            // Force pause simulation on client since Harmony patches may not work
+            // This prevents client from running its own simulation
+            if (!Config.paused)
+            {
+                Config.paused = true;
+            }
+            
             InterpolateActorPositions();
         }
 
