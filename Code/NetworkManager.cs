@@ -137,11 +137,19 @@ namespace WorldBoxMultiplayer
                 string type = parts[0];
 
                 if (type == "FILE_START") {
-                    SaveTransferHandler.Instance.OnReceiveStart(int.Parse(parts[1]), int.Parse(parts[2]));
+                    var handler = SaveTransferHandler.Instance ?? FindObjectOfType<SaveTransferHandler>();
+                    if (handler != null) {
+                        handler.OnReceiveStart(int.Parse(parts[1]), int.Parse(parts[2]));
+                    } else {
+                        Debug.LogError("[Multiplayer] SaveTransferHandler not found!");
+                    }
                     return;
                 }
                 if (type == "FILE_DATA") {
-                    SaveTransferHandler.Instance.OnReceiveChunk(int.Parse(parts[1]), parts[2]);
+                    var handler = SaveTransferHandler.Instance ?? FindObjectOfType<SaveTransferHandler>();
+                    if (handler != null) {
+                        handler.OnReceiveChunk(int.Parse(parts[1]), parts[2]);
+                    }
                     return;
                 }
                 
