@@ -123,14 +123,14 @@ namespace WorldBoxMultiplayer
             if (NetworkManager.Instance == null || !NetworkManager.Instance.IsConnected) {
                 GUI.Label(new Rect(10, 120, 260, 20), "HOST CODE:");
                 GUI.TextField(new Rect(10, 140, 260, 20), _myRoomCode);
-                if (GUI.Button(new Rect(10, 165, 260, 30), "HOST")) { 
+                if (GUI.Button(new Rect(10, 165, 260, 30), "HOST") && NetworkManager.Instance != null) { 
                     NetworkManager.Instance.StartHost(int.Parse(_port)); 
                     _status = "Waiting..."; 
                 }
                 
                 GUI.Label(new Rect(10, 205, 260, 20), "JOIN CODE:");
                 _roomCodeInput = GUI.TextField(new Rect(10, 225, 260, 20), _roomCodeInput);
-                if (GUI.Button(new Rect(10, 250, 260, 30), "CONNECT")) {
+                if (GUI.Button(new Rect(10, 250, 260, 30), "CONNECT") && NetworkManager.Instance != null) {
                     if (DecodeRoomCode(_roomCodeInput, out string ip, out int port)) { 
                         NetworkManager.Instance.StartClient(ip, port); 
                         _status = "Connecting..."; 
