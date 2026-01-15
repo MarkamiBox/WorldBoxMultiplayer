@@ -191,7 +191,7 @@ namespace WorldBoxMultiplayer
                     {
                         if (actor.id == id)
                         {
-                            actor.killHimself(true, AttackType.Other, true, true);
+                            actor.kill();
                             break;
                         }
                     }

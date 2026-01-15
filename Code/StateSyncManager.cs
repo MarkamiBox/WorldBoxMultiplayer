@@ -251,12 +251,9 @@ namespace WorldBoxMultiplayer
             if (tile == null) return;
             
             GodPower power = AssetManager.powers.get(powerID);
-            if (power != null)
+            if (power != null && power.click_action != null)
             {
-                if (power.click_action != null)
-                    power.click_action(tile, powerID);
-                else if (!string.IsNullOrEmpty(power.drop_id))
-                    MapBox.instance.dropManager.spawn(tile, power.drop_id);
+                power.click_action(tile, powerID);
             }
         }
     }

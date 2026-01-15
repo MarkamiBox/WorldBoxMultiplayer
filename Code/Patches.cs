@@ -116,10 +116,7 @@ namespace WorldBoxMultiplayer
                 WorldTile tile = MapBox.instance.GetTile(x, y);
                 if (tile != null)
                 {
-                    if (power.click_action != null)
-                        power.click_action(tile, power.id);
-                    else if (!string.IsNullOrEmpty(power.drop_id))
-                        MapBox.instance.dropManager.spawn(tile, power.drop_id);
+                    power.click_action?.Invoke(tile, power.id);
                 }
             }
         }

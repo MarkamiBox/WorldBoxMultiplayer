@@ -62,8 +62,9 @@ namespace WorldBoxMultiplayer
                 bw.Write(city.data.name ?? "");
                 bw.Write(city.data.kingdomID);
                 bw.Write(city.status.population);
-                bw.Write(city.getCenterTile()?.x ?? 0);
-                bw.Write(city.getCenterTile()?.y ?? 0);
+                var centerTile = city.zones.Count > 0 ? city.zones[0]?.centerTile : null;
+                bw.Write(centerTile?.x ?? 0);
+                bw.Write(centerTile?.y ?? 0);
                 return ms.ToArray();
             }
         }
@@ -123,8 +124,8 @@ namespace WorldBoxMultiplayer
             {
                 bw.Write((byte)EntityType.Building);
                 bw.Write(building.id);
-                bw.Write(building.data.x);
-                bw.Write(building.data.y);
+                bw.Write(building.data.mainX);
+                bw.Write(building.data.mainY);
                 bw.Write(building.asset.id ?? "");
                 bw.Write(building.data.health);
                 bw.Write(building.data.cityID);
