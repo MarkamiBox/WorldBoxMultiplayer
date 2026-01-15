@@ -44,9 +44,44 @@ namespace WorldBoxMultiplayer
         }
 
         private bool CallGameSave(int slot) {
-            try { Type t = AccessTools.TypeByName("SaveManager"); if(t==null)return false; MethodInfo m=AccessTools.Method(t,"saveGame",new Type[]{typeof(int)}); if(m!=null){m.Invoke(null,new object[]{slot}); return true;} UnityEngine.Object i=UnityEngine.Object.FindObjectOfType(t); if(i!=null){Traverse.Create(i).Method("saveGame",new object[]{slot}).GetValue(); return true;} } catch{} return false;
+            try {
+                // Get the save directory path
+                string savePath = GetSaveDirectory(slot);
+                Debug.Log($"[Sync] Saving to directory: {savePath}");
+                
+                // Use reflection to call SaveManager.saveWorldToDirectory(string path)
+                Type t = AccessTools.TypeByName("SaveManager");
+                if (t == null) { Debug.LogError("[Sync] SaveManager type not found"); return false; }
+                
+                MethodInfo m = AccessTools.Method(t, "saveWorldToDirectory", new Type[] { typeof(string), typeof(bool), typeof(bool) });
+                if (m != null) {
+                    m.Invoke(null, new object[] { savePath, true, true });
+                    Debug.Log("[Sync] Save completed via saveWorldToDirectory");
+                    return true;
+                }
+                
+                // Fallback: try with just path
+                m = AccessTools.Method(t, "saveWorldToDirectory", new Type[] { typeof(string) });
+                if (m != null) {
+                    m.Invoke(null, new object[] { savePath });
+                    Debug.Log("[Sync] Save completed via saveWorldToDirectory (1 param)");
+                    return true;
+                }
+                
+                Debug.LogError("[Sync] saveWorldToDirectory method not found");
+            } catch (Exception e) { 
+                Debug.LogError($"[Sync] Save exception: {e.Message}"); 
+            }
+            return false;
         }
-        private string GetSavePath(int slot) { return Path.Combine(Application.persistentDataPath, "saves", "save"+slot+".wbox"); }
+        
+        private string GetSaveDirectory(int slot) {
+            return Path.Combine(Application.persistentDataPath, "saves", "save" + slot);
+        }
+        
+        private string GetSavePath(int slot) { 
+            return Path.Combine(GetSaveDirectory(slot), "map.wbox"); 
+        }
 
         private IEnumerator SendFileRoutine(byte[] data) {
             int totalChunks = Mathf.CeilToInt((float)data.Length / CHUNK_SIZE);
@@ -87,7 +122,38 @@ namespace WorldBoxMultiplayer
                 Config.paused = false; 
             }
         }
-        private void CallGameLoad(int slot) { try { Type t=AccessTools.TypeByName("SaveManager"); if(t==null)return; MethodInfo m=AccessTools.Method(t,"loadGame",new Type[]{typeof(int)}); if(m!=null){m.Invoke(null,new object[]{slot});return;} UnityEngine.Object i=UnityEngine.Object.FindObjectOfType(t); if(i!=null)Traverse.Create(i).Method("loadGame",new object[]{slot}).GetValue(); } catch{} }
+        private void CallGameLoad(int slot) { 
+            try { 
+                Type t = AccessTools.TypeByName("SaveManager"); 
+                if (t == null) { Debug.LogError("[Sync] SaveManager not found for load"); return; }
+                
+                // Set the current slot
+                MethodInfo setSlot = AccessTools.Method(t, "setCurrentSlot", new Type[] { typeof(int) });
+                if (setSlot != null) {
+                    setSlot.Invoke(null, new object[] { slot });
+                    Debug.Log($"[Sync] Set current slot to {slot}");
+                }
+                
+                // Load the world using MapBox.instance.loadWorld
+                Type mapBoxType = AccessTools.TypeByName("MapBox");
+                if (mapBoxType != null) {
+                    var instance = AccessTools.StaticFieldRefAccess<object>(mapBoxType, "instance");
+                    if (instance != null) {
+                        MethodInfo loadWorld = AccessTools.Method(mapBoxType, "loadWorld", new Type[] { typeof(string) });
+                        if (loadWorld != null) {
+                            string savePath = GetSaveDirectory(slot);
+                            loadWorld.Invoke(instance, new object[] { savePath });
+                            Debug.Log($"[Sync] World loaded from {savePath}");
+                            return;
+                        }
+                    }
+                }
+                
+                Debug.LogError("[Sync] Could not load world");
+            } catch (Exception e) { 
+                Debug.LogError($"[Sync] Load exception: {e.Message}"); 
+            } 
+        }
         
         // FIX QUI SOTTO: Uso esplicito di System.IO.Compression.CompressionLevel
         private byte[] Compress(byte[] d) { 
