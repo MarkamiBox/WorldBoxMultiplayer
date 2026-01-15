@@ -61,8 +61,9 @@ namespace WorldBoxMultiplayer
                 IsConnected = true;
                 IsMapLoaded = false;
                 
-                if (ClientController.Instance != null)
-                    ClientController.Instance.IsClientMode = true;
+                // NOTE: Do NOT enable ClientMode here!
+                // It will be enabled by SaveTransferHandler.FinishReception() AFTER map loads
+                // Otherwise Harmony patches block MapBox.Update and map can't load
                     
                 WorldBoxMultiplayer.instance.UpdateStatus("Connected! Waiting for Map...");
                 StartCoroutine(SyncCheckerRoutine());
