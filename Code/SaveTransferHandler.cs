@@ -124,34 +124,30 @@ namespace WorldBoxMultiplayer
         }
         private void CallGameLoad(int slot) { 
             try { 
-                Type t = AccessTools.TypeByName("SaveManager"); 
-                if (t == null) { Debug.LogError("[Sync] SaveManager not found for load"); return; }
+                string savePath = GetSaveDirectory(slot);
+                Debug.Log($"[Sync] Loading world from: {savePath}");
                 
-                // Set the current slot
-                MethodInfo setSlot = AccessTools.Method(t, "setCurrentSlot", new Type[] { typeof(int) });
-                if (setSlot != null) {
-                    setSlot.Invoke(null, new object[] { slot });
-                    Debug.Log($"[Sync] Set current slot to {slot}");
-                }
-                
-                // Load the world using MapBox.instance.loadWorld
-                Type mapBoxType = AccessTools.TypeByName("MapBox");
-                if (mapBoxType != null) {
-                    var instance = AccessTools.StaticFieldRefAccess<object>(mapBoxType, "instance");
-                    if (instance != null) {
-                        MethodInfo loadWorld = AccessTools.Method(mapBoxType, "loadWorld", new Type[] { typeof(string) });
-                        if (loadWorld != null) {
-                            string savePath = GetSaveDirectory(slot);
-                            loadWorld.Invoke(instance, new object[] { savePath });
-                            Debug.Log($"[Sync] World loaded from {savePath}");
-                            return;
+                // Use World.world.save_manager.loadWorld(path)
+                if (World.world != null && World.world.save_manager != null) {
+                    // First set the current path
+                    Type t = AccessTools.TypeByName("SaveManager");
+                    if (t != null) {
+                        MethodInfo setPath = AccessTools.Method(t, "setCurrentPath", new Type[] { typeof(string) });
+                        if (setPath != null) {
+                            setPath.Invoke(null, new object[] { savePath });
+                            Debug.Log($"[Sync] Set current path to {savePath}");
                         }
                     }
+                    
+                    // Call loadWorld directly
+                    World.world.save_manager.loadWorld(savePath);
+                    Debug.Log("[Sync] World loaded successfully!");
+                    return;
                 }
                 
-                Debug.LogError("[Sync] Could not load world");
+                Debug.LogError("[Sync] World.world or save_manager is null");
             } catch (Exception e) { 
-                Debug.LogError($"[Sync] Load exception: {e.Message}"); 
+                Debug.LogError($"[Sync] Load exception: {e.Message}\n{e.StackTrace}"); 
             } 
         }
         
