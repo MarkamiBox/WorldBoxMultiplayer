@@ -14,7 +14,7 @@ namespace WorldBoxMultiplayer
     {
         public static WorldBoxMultiplayer instance;
         private bool _showUI = false;
-        private Rect _windowRect = new Rect(20, 20, 300, 500); // Taller window
+        private Rect _windowRect = new Rect(20, 20, 300, 400);
         
         private string _roomCodeInput = "";
         private string _port = "7777";
@@ -22,31 +22,27 @@ namespace WorldBoxMultiplayer
         private string _myRoomCode = "Generating..."; 
         private string _myLocalIP = "127.0.0.1";
 
-        // --- AUTO SYNC SETTINGS ---
-        public bool AutoSyncEnabled = true;
-        public float AutoSyncInterval = 60f; // Seconds
-        private float _lastSyncTime = 0f;
-
         void Awake()
         {
             instance = this;
             try {
                 _myLocalIP = GetLocalIPAddress();
                 _myRoomCode = GenerateRoomCode(_myLocalIP, "7777");
-                Harmony harmony = new Harmony("com.markami.worldbox.multiplayer.final");
+                Harmony harmony = new Harmony("com.markami.worldbox.multiplayer.authserver");
                 harmony.PatchAll();
                 
                 if (GetComponent<NetworkManager>() == null) gameObject.AddComponent<NetworkManager>();
-                if (GetComponent<LockstepController>() == null) gameObject.AddComponent<LockstepController>();
+                if (GetComponent<StateSyncManager>() == null) gameObject.AddComponent<StateSyncManager>();
+                if (GetComponent<ClientController>() == null) gameObject.AddComponent<ClientController>();
                 if (GetComponent<CursorHandler>() == null) gameObject.AddComponent<CursorHandler>();
                 if (GetComponent<SaveTransferHandler>() == null) gameObject.AddComponent<SaveTransferHandler>();
-                Debug.Log("MULTIPLAYER ULTIMATE LOADED");
+                
+                Debug.Log("MULTIPLAYER AUTHSERVER LOADED");
             } catch (Exception e) { Debug.LogError(e.Message); }
         }
         
         public void UpdateStatus(string s) { _status = s; }
 
-        // --- HELPER METHODS FOR GAME SYNC ---
         public void SetName(string type, long id, string name64) {
             try {
                 string name = Encoding.UTF8.GetString(Convert.FromBase64String(name64));
@@ -55,6 +51,7 @@ namespace WorldBoxMultiplayer
                 else if (type == "Kingdom") { Kingdom k = World.world.kingdoms.get(id); if (k != null) k.data.name = name; }
             } catch {}
         }
+        
         public void SetEra(string eraID) {
             WorldAgeAsset asset = AssetManager.era_library.get(eraID);
             if (asset != null) {
@@ -63,45 +60,37 @@ namespace WorldBoxMultiplayer
                 if (method != null) method.Invoke(eraMgr, new object[] { asset, true });
             }
         }
+        
         public void SetKingdomData(long id, int colorId, int bannerId) {
             Kingdom k = World.world.kingdoms.get(id);
-            if (k != null) { k.data.color_id = colorId; k.data.banner_icon_id = bannerId; ColorAsset c = AssetManager.kingdom_colors_library.get(colorId.ToString()); if(c!=null) k.updateColor(c); k.generateBanner(); }
+            if (k != null) { 
+                k.data.color_id = colorId; 
+                k.data.banner_icon_id = bannerId; 
+                ColorAsset c = AssetManager.kingdom_colors_library.get(colorId.ToString()); 
+                if(c!=null) k.updateColor(c); 
+                k.generateBanner(); 
+            }
         }
+        
         public void SetLaw(string id, bool state) {
             if (World.world.world_laws.dict.ContainsKey(id)) World.world.world_laws.dict[id].boolVal = state;
         }
+        
         public void SetSpeed(string id) {
             Config.setWorldSpeed(id);
-            LockstepController.Instance.UpdateTimeScale();
         }
 
         void Update() { 
             if (Input.GetKeyDown(KeyCode.M)) _showUI = !_showUI; 
-
-            // --- AUTO SYNC LOGIC (HOST ONLY) ---
-            if (NetworkManager.Instance != null && NetworkManager.Instance.IsHost() && 
-                NetworkManager.Instance.IsMapLoaded && AutoSyncEnabled)
-            {
-                // Only sync if game is not paused (simulating) and not already transferring
-                if (!Config.paused && !SaveTransferHandler.Instance.IsTransferring)
-                {
-                    if (Time.time - _lastSyncTime > AutoSyncInterval)
-                    {
-                        _lastSyncTime = Time.time;
-                        Debug.Log("[AutoSync] Time interval reached. Starting Auto-Sync...");
-                        NetworkManager.Instance.RequestResync();
-                    }
-                }
-            }
         }
 
         void OnGUI() {
             if (!_showUI) return;
-            _windowRect = GUI.Window(102030, _windowRect, DrawWindow, "Multiplayer Ultimate");
+            _windowRect = GUI.Window(102030, _windowRect, DrawWindow, "Multiplayer (Auth Server)");
         }
 
         void DrawWindow(int id) {
-            if (SaveTransferHandler.Instance.IsTransferring) {
+            if (SaveTransferHandler.Instance != null && SaveTransferHandler.Instance.IsTransferring) {
                 GUI.Label(new Rect(10, 50, 260, 30), "SYNCING WORLD... PLEASE WAIT");
                 GUI.Box(new Rect(10, 80, 260, 20), "");
                 GUI.color = Color.green;
@@ -111,55 +100,74 @@ namespace WorldBoxMultiplayer
                 GUI.DragWindow();
                 return;
             }
+            
             GUI.color = Color.yellow;
             GUI.Label(new Rect(10, 25, 260, 20), "IP: " + _myLocalIP);
             GUI.color = Color.white;
             GUI.Label(new Rect(10, 50, 260, 20), "Status: " + _status);
             
-            if (LockstepController.Instance.DesyncDetected) {
-                GUI.color = Color.red;
-                GUI.Label(new Rect(10, 70, 260, 40), "DESYNC DETECTED!\nWait for Auto-Sync...");
-                GUI.color = Color.white;
-                if (NetworkManager.Instance.IsHost() && GUI.Button(new Rect(10, 110, 260, 30), "FIX NOW")) 
-                    NetworkManager.Instance.RequestResync();
-            } else if (NetworkManager.Instance.IsConnected) {
+            bool isClient = ClientController.Instance != null && ClientController.Instance.IsClientMode;
+            bool isHost = NetworkManager.Instance != null && NetworkManager.Instance.IsHost();
+            
+            if (NetworkManager.Instance != null && NetworkManager.Instance.IsConnected) {
                 GUI.color = Color.green;
-                GUI.Label(new Rect(10, 70, 260, 20), "GAME SYNCED");
+                if (isHost) GUI.Label(new Rect(10, 70, 260, 20), "MODE: HOST (Authoritative)");
+                else if (isClient) GUI.Label(new Rect(10, 70, 260, 20), "MODE: CLIENT (Visual Sync)");
                 GUI.color = Color.white;
+                
+                if (StateSyncManager.Instance != null && isHost) {
+                    GUI.Label(new Rect(10, 90, 260, 20), $"Sync Interval: {StateSyncManager.Instance.SyncInterval:F2}s");
+                }
             }
 
-            if (!NetworkManager.Instance.IsConnected) {
-                GUI.Label(new Rect(10, 140, 260, 20), "HOST CODE:");
-                GUI.TextField(new Rect(10, 160, 260, 20), _myRoomCode);
-                if (GUI.Button(new Rect(10, 185, 260, 30), "HOST")) { NetworkManager.Instance.StartHost(int.Parse(_port)); _status = "Waiting..."; }
+            if (NetworkManager.Instance == null || !NetworkManager.Instance.IsConnected) {
+                GUI.Label(new Rect(10, 120, 260, 20), "HOST CODE:");
+                GUI.TextField(new Rect(10, 140, 260, 20), _myRoomCode);
+                if (GUI.Button(new Rect(10, 165, 260, 30), "HOST")) { 
+                    NetworkManager.Instance.StartHost(int.Parse(_port)); 
+                    _status = "Waiting..."; 
+                }
                 
-                GUI.Label(new Rect(10, 225, 260, 20), "JOIN CODE:");
-                _roomCodeInput = GUI.TextField(new Rect(10, 245, 260, 20), _roomCodeInput);
-                if (GUI.Button(new Rect(10, 270, 260, 30), "CONNECT")) {
-                    if (DecodeRoomCode(_roomCodeInput, out string ip, out int port)) { NetworkManager.Instance.StartClient(ip, port); _status = "Connecting..."; }
+                GUI.Label(new Rect(10, 205, 260, 20), "JOIN CODE:");
+                _roomCodeInput = GUI.TextField(new Rect(10, 225, 260, 20), _roomCodeInput);
+                if (GUI.Button(new Rect(10, 250, 260, 30), "CONNECT")) {
+                    if (DecodeRoomCode(_roomCodeInput, out string ip, out int port)) { 
+                        NetworkManager.Instance.StartClient(ip, port); 
+                        _status = "Connecting..."; 
+                    }
                     else _status = "Invalid Code";
                 }
             } else {
-                if (GUI.Button(new Rect(10, 310, 260, 30), "DISCONNECT")) NetworkManager.Instance.Disconnect();
+                if (GUI.Button(new Rect(10, 290, 260, 30), "DISCONNECT")) NetworkManager.Instance.Disconnect();
                 
-                // HOST CONTROLS
-                if (NetworkManager.Instance.IsHost()) 
-                {
-                    GUI.Label(new Rect(10, 350, 260, 20), $"Auto-Sync: {(AutoSyncEnabled ? "ON" : "OFF")}");
-                    if (GUI.Button(new Rect(10, 370, 125, 30), "Toggle Auto")) AutoSyncEnabled = !AutoSyncEnabled;
-                    if (GUI.Button(new Rect(145, 370, 125, 30), "Force Sync")) SaveTransferHandler.Instance.StartTransfer();
-                    
-                    GUI.Label(new Rect(10, 410, 260, 20), $"Interval: {AutoSyncInterval:F0}s");
-                    AutoSyncInterval = GUI.HorizontalSlider(new Rect(10, 430, 260, 20), AutoSyncInterval, 30f, 300f);
+                if (isHost) {
+                    GUI.Label(new Rect(10, 330, 260, 20), "HOST CONTROLS:");
+                    if (GUI.Button(new Rect(10, 350, 260, 30), "Force Full Resync")) 
+                        SaveTransferHandler.Instance.StartTransfer();
                 }
             }
             GUI.DragWindow();
         }
-        public string GenerateRoomCode(string ip, string port) { return Convert.ToBase64String(Encoding.UTF8.GetBytes($"{ip}:{port}")); }
+        
+        public string GenerateRoomCode(string ip, string port) { 
+            return Convert.ToBase64String(Encoding.UTF8.GetBytes($"{ip}:{port}")); 
+        }
+        
         public bool DecodeRoomCode(string code, out string ip, out int port) {
             ip = ""; port = 0;
-            try { string[] parts = Encoding.UTF8.GetString(Convert.FromBase64String(code)).Split(':'); ip = parts[0]; port = int.Parse(parts[1]); return true; } catch { return false; }
+            try { 
+                string[] parts = Encoding.UTF8.GetString(Convert.FromBase64String(code)).Split(':'); 
+                ip = parts[0]; port = int.Parse(parts[1]); 
+                return true; 
+            } catch { return false; }
         }
-        public static string GetLocalIPAddress() { try { foreach (var ip in Dns.GetHostEntry(Dns.GetHostName()).AddressList) if (ip.AddressFamily == AddressFamily.InterNetwork) return ip.ToString(); } catch {} return "127.0.0.1"; }
+        
+        public static string GetLocalIPAddress() { 
+            try { 
+                foreach (var ip in Dns.GetHostEntry(Dns.GetHostName()).AddressList) 
+                    if (ip.AddressFamily == AddressFamily.InterNetwork) return ip.ToString(); 
+            } catch {} 
+            return "127.0.0.1"; 
+        }
     }
 }

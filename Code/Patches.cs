@@ -5,52 +5,65 @@ using System.Collections.Generic;
 
 namespace WorldBoxMultiplayer
 {
-    // Block standard Update to enforce Lockstep
     [HarmonyPatch(typeof(MapBox), "Update")]
-    class MapBox_Update_Patch {
-        static PowerButton _savedButton;
-        static void Prefix() {
-            if (LockstepController.Instance != null && LockstepController.Instance.IsRunningManualStep) return;
-
-            if (NetworkManager.Instance != null && NetworkManager.Instance.IsMultiplayerReady) {
-                // 1. Capture Input
-                InputHandler.CheckInput();
-                
-                // 2. Hide selected power from the game engine so it doesn't execute locally
-                if (PowerButtonSelector.instance != null) {
-                    _savedButton = PowerButtonSelector.instance.selectedButton;
-                    PowerButtonSelector.instance.selectedButton = null;
-                }
-                
-                // 3. Pause Simulation (Camera/UI still works)
-                Config.paused = true;
+    class MapBox_Update_Patch
+    {
+        static bool Prefix()
+        {
+            if (ClientController.Instance != null && ClientController.Instance.IsClientMode)
+            {
+                return false;
             }
-        }
-        static void Postfix() {
-            if (NetworkManager.Instance != null && NetworkManager.Instance.IsMultiplayerReady) {
-                // Restore button for UI rendering
-                if (PowerButtonSelector.instance != null && _savedButton != null) {
-                    PowerButtonSelector.instance.selectedButton = _savedButton;
-                    _savedButton = null;
-                }
-            }
+            return true;
         }
     }
 
-    // Fix DeltaTime for deterministic physics
-    [HarmonyPatch(typeof(Time), "deltaTime", MethodType.Getter)]
-    class Time_DeltaTime_Patch {
-        static void Postfix(ref float __result) {
-            if (LockstepController.Instance?.IsRunningManualStep == true) 
-                __result = LockstepController.Instance.CurrentDeltaTime;
+    [HarmonyPatch(typeof(ActorManager), "update")]
+    class ActorManager_Update_Patch
+    {
+        static bool Prefix()
+        {
+            if (ClientController.Instance != null && ClientController.Instance.IsClientMode)
+            {
+                return false;
+            }
+            return true;
         }
     }
 
-    // Sync Naming
+    [HarmonyPatch(typeof(CityManager), "update")]
+    class CityManager_Update_Patch
+    {
+        static bool Prefix()
+        {
+            if (ClientController.Instance != null && ClientController.Instance.IsClientMode)
+            {
+                return false;
+            }
+            return true;
+        }
+    }
+
+    [HarmonyPatch(typeof(KingdomManager), "update")]
+    class KingdomManager_Update_Patch
+    {
+        static bool Prefix()
+        {
+            if (ClientController.Instance != null && ClientController.Instance.IsClientMode)
+            {
+                return false;
+            }
+            return true;
+        }
+    }
+
     [HarmonyPatch(typeof(NameInput), "applyInput")]
-    class NameInput_Apply_Patch {
-        static void Postfix(NameInput __instance) {
-            if (NetworkManager.Instance?.IsMultiplayerReady == true) {
+    class NameInput_Apply_Patch
+    {
+        static void Postfix(NameInput __instance)
+        {
+            if (NetworkManager.Instance?.IsMultiplayerReady == true)
+            {
                 var trav = Traverse.Create(__instance);
                 var tActor = trav.Field("target_actor").GetValue<Actor>() ?? trav.Field("actor").GetValue<Actor>();
                 var tCity = trav.Field("target_city").GetValue<City>() ?? trav.Field("city").GetValue<City>();
@@ -63,32 +76,52 @@ namespace WorldBoxMultiplayer
         }
     }
 
-    public static class InputHandler {
+    public static class InputHandler
+    {
         private static float _nextActionTime = 0f;
-        // Banned powers that break determinism or are too heavy
         private static HashSet<string> _bannedPowers = new HashSet<string>() { "force_push", "magnet" };
-        
-        public static void CheckInput() {
-            if (Input.GetMouseButton(0) && Time.time >= _nextActionTime) {
-                if (!UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject()) {
+
+        public static void CheckInput()
+        {
+            if (!NetworkManager.Instance.IsMultiplayerReady) return;
+            
+            if (Input.GetMouseButton(0) && Time.time >= _nextActionTime)
+            {
+                if (!UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
+                {
                     HandleClick();
-                    _nextActionTime = Time.time + 0.05f; // Cap at 20 actions/sec
+                    _nextActionTime = Time.time + 0.05f;
                 }
             }
         }
-        
-        static void HandleClick() {
+
+        static void HandleClick()
+        {
             var selector = PowerButtonSelector.instance;
             if (selector == null || selector.selectedButton == null) return;
-            
+
             GodPower power = Traverse.Create(selector.selectedButton).Field("godPower").GetValue<GodPower>();
             if (power == null || _bannedPowers.Contains(power.id)) return;
-            
+
             Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
-            WorldTile tile = MapBox.instance.GetTile((int)mousePos.x, (int)mousePos.y);
+            int x = (int)mousePos.x;
+            int y = (int)mousePos.y;
             
-            if (tile != null) 
-                NetworkManager.Instance.SendAction($"POWER:{power.id}:{tile.x}:{tile.y}");
+            if (ClientController.Instance != null && ClientController.Instance.IsClientMode)
+            {
+                ClientController.Instance.SendInputAction(power.id, x, y);
+            }
+            else if (NetworkManager.Instance.IsHost())
+            {
+                WorldTile tile = MapBox.instance.GetTile(x, y);
+                if (tile != null)
+                {
+                    if (power.click_action != null)
+                        power.click_action(tile, power.id);
+                    else if (!string.IsNullOrEmpty(power.drop_id))
+                        MapBox.instance.dropManager.spawn(tile, power.drop_id);
+                }
+            }
         }
     }
 }

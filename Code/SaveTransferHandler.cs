@@ -72,10 +72,20 @@ namespace WorldBoxMultiplayer
                     File.WriteAllBytes(GetSavePath(SYNC_SLOT_ID), Decompress(ms.ToArray()));
                 }
                 CallGameLoad(SYNC_SLOT_ID);
-                NetworkManager.Instance.IsMapLoaded = true; LockstepController.Instance.CurrentTick = 0;
-                WorldBoxMultiplayer.instance.UpdateStatus("Synced");
+                NetworkManager.Instance.IsMapLoaded = true;
+                
+                if (ClientController.Instance != null) {
+                    ClientController.Instance.IsClientMode = true;
+                    ClientController.Instance.ClearState();
+                }
+                
+                WorldBoxMultiplayer.instance.UpdateStatus("Synced - Client Mode Active");
                 Config.paused = false; 
-            } catch { NetworkManager.Instance.IsMapLoaded = true; Config.paused = false; }
+            } catch (Exception e) { 
+                Debug.LogError($"[Sync] Load failed: {e.Message}");
+                NetworkManager.Instance.IsMapLoaded = true; 
+                Config.paused = false; 
+            }
         }
         private void CallGameLoad(int slot) { try { Type t=AccessTools.TypeByName("SaveManager"); if(t==null)return; MethodInfo m=AccessTools.Method(t,"loadGame",new Type[]{typeof(int)}); if(m!=null){m.Invoke(null,new object[]{slot});return;} UnityEngine.Object i=UnityEngine.Object.FindObjectOfType(t); if(i!=null)Traverse.Create(i).Method("loadGame",new object[]{slot}).GetValue(); } catch{} }
         
