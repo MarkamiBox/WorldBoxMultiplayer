@@ -191,7 +191,7 @@ namespace WorldBoxMultiplayer
                     {
                         if (actor.id == id)
                         {
-                            actor.kill();
+                            actor.getHitFullHealth(AttackType.Divine);
                             break;
                         }
                     }
